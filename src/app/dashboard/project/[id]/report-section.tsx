@@ -444,28 +444,6 @@ export function ReportSection({
     setGeneratePeriodModal(type);
   }
 
-  async function approveReport(reportId: string) {
-    setError("");
-    setLoading(`approve-${reportId}`);
-    try {
-      const res = await fetch(`/api/reports/${reportId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "approved" }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setReports((prev) =>
-          prev.map((r) => (r.id === reportId ? { ...r, status: "approved", approved_at: data.approved_at } : r))
-        );
-        if (modalReport?.id === reportId) setModalReport((r) => (r ? { ...r, status: "approved" } : null));
-      } else setError(data.error || res.statusText);
-      router.refresh();
-    } finally {
-      setLoading(null);
-    }
-  }
-
   async function rejectReport(reportId: string) {
     setError("");
     setLoading(`reject-${reportId}`);
