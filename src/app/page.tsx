@@ -1,14 +1,14 @@
 import { auth } from "@/auth";
-import Link from "next/link";
+import { redirect } from "next/navigation";
 import { GoogleSignInButton } from "@/components/google-sign-in-button";
 import { LogoBackground } from "@/components/logo-background";
 import { ValtiraLogo } from "@/components/valtira-logo";
-import { signOutAction } from "@/app/auth/actions";
 
 const TAGLINE = "Project management and client reporting assistant";
 
 export default async function HomePage() {
   const session = await auth();
+  if (session?.user) redirect("/dashboard");
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-neutral-50">
@@ -21,26 +21,7 @@ export default async function HomePage() {
           <p className="mt-3 text-center text-sm leading-relaxed text-neutral-500">
             {TAGLINE}
           </p>
-          {session ? (
-            <div className="mt-8 flex flex-col gap-3">
-              <Link
-                href="/dashboard"
-                className="flex w-full items-center justify-center rounded-xl bg-neutral-900 px-4 py-3.5 text-sm font-medium text-white shadow-sm transition hover:bg-neutral-800 active:scale-[0.99]"
-              >
-                Go to dashboard
-              </Link>
-              <form action={signOutAction} className="w-full">
-                <button
-                  type="submit"
-                  className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-sm font-medium text-neutral-600 transition hover:bg-neutral-50 hover:text-neutral-900"
-                >
-                  Sign out
-                </button>
-              </form>
-            </div>
-          ) : (
-            <GoogleSignInButton className="mt-8 flex w-full items-center justify-center gap-3 rounded-xl bg-neutral-900 px-4 py-3.5 text-sm font-medium text-white shadow-sm transition hover:bg-neutral-800 active:scale-[0.99]" />
-          )}
+          <GoogleSignInButton className="mt-8 flex w-full items-center justify-center gap-3 rounded-xl bg-neutral-900 px-4 py-3.5 text-sm font-medium text-white shadow-sm transition hover:bg-neutral-800 active:scale-[0.99]" />
           <p className="mt-6 text-center text-xs text-neutral-400">
             Invite-only. Contact your admin for access.
           </p>
