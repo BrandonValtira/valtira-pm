@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import Link from "next/link";
 import { LogoBackground } from "@/components/logo-background";
+import { UserMenu } from "@/components/user-menu";
 import { ValtiraLogo } from "@/components/valtira-logo";
 
 export default async function DashboardLayout({
@@ -35,50 +36,19 @@ export default async function DashboardLayout({
             {(session?.user as { role?: string })?.role === "super_admin" ? (
               <Link
                 href="/dashboard/team"
-                className="text-sm text-neutral-600 hover:text-neutral-900"
+                className="text-sm text-neutral-700 hover:text-neutral-900"
               >
                 Team
               </Link>
             ) : (
               <span
-                className="text-sm text-neutral-400 cursor-not-allowed"
+                className="text-sm text-neutral-600 cursor-not-allowed"
                 title="Team management is only available to Super Admins"
               >
                 Team
               </span>
             )}
-            {session && (
-              <div className="ml-4 flex items-center gap-3 border-l border-neutral-200 pl-6">
-                {session.user && (
-                  <>
-                    <span className="text-sm text-neutral-600 truncate max-w-[140px]">
-                      {session.user.name ?? session.user.email ?? "Signed in"}
-                    </span>
-                    {session.user.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={session.user.image}
-                        alt=""
-                        width={32}
-                        height={32}
-                        className="h-8 w-8 rounded-full border border-neutral-200 object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-200 text-xs font-medium text-neutral-600">
-                        {(session.user.name ?? session.user.email ?? "?")[0].toUpperCase()}
-                      </span>
-                    )}
-                  </>
-                )}
-                <a
-                  href="/api/auth/signout?callbackUrl=%2F"
-                  className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 shadow-sm transition hover:bg-neutral-50 hover:border-neutral-300"
-                >
-                  Sign out
-                </a>
-              </div>
-            )}
+            {session?.user && <UserMenu user={session.user} />}
           </nav>
         </div>
       </header>

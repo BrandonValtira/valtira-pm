@@ -6,7 +6,7 @@ export default function NewProjectPage() {
     <div>
       <Link
         href="/dashboard"
-        className="text-sm text-neutral-500 hover:text-neutral-700"
+        className="text-sm text-neutral-700 hover:text-neutral-900"
       >
         ← Back to projects
       </Link>

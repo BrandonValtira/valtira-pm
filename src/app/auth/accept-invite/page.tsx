@@ -50,7 +50,7 @@ function AcceptInviteContent() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center px-4">
         <p className="text-center text-neutral-600">Invalid or missing invite link.</p>
-        <a href="/" className="mt-4 text-sm text-neutral-500 underline hover:text-neutral-700">
+        <a href="/" className="mt-4 text-sm text-neutral-700 underline hover:text-neutral-900">
           Go home
         </a>
       </div>
@@ -61,7 +61,7 @@ function AcceptInviteContent() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center px-4">
         <ValtiraLogo height={40} />
-        <p className="mt-4 text-sm text-neutral-500">Accepting invite…</p>
+        <p className="mt-4 text-sm text-neutral-700">Accepting invite…</p>
       </div>
     );
   }
@@ -73,12 +73,12 @@ function AcceptInviteContent() {
         {acceptError ? (
           <>
             <p className="mt-4 text-center text-sm text-red-600">{acceptError}</p>
-            <a href="/dashboard" className="mt-4 text-sm text-neutral-500 underline hover:text-neutral-700">
+            <a href="/dashboard" className="mt-4 text-sm text-neutral-700 underline hover:text-neutral-900">
               Go to dashboard
             </a>
           </>
         ) : (
-          <p className="mt-4 text-sm text-neutral-500">Redirecting…</p>
+          <p className="mt-4 text-sm text-neutral-700">Redirecting…</p>
         )}
       </div>
     );
@@ -97,7 +97,7 @@ function AcceptInviteContent() {
       >
         Sign in with Google
       </button>
-      <a href="/" className="mt-6 text-sm text-neutral-500 underline hover:text-neutral-700">
+      <a href="/" className="mt-6 text-sm text-neutral-700 underline hover:text-neutral-900">
         Cancel
       </a>
     </div>
@@ -109,7 +109,7 @@ export default function AcceptInvitePage() {
     <Suspense fallback={
       <div className="flex min-h-screen flex-col items-center justify-center px-4">
         <ValtiraLogo height={40} />
-        <p className="mt-4 text-sm text-neutral-500">Loading…</p>
+        <p className="mt-4 text-sm text-neutral-700">Loading…</p>
       </div>
     }>
       <AcceptInviteContent />

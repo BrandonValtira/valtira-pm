@@ -20,6 +20,13 @@ body {
   font-family: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
 }
 
+@layer base {
+  input::placeholder,
+  textarea::placeholder {
+    @apply text-neutral-600;
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;

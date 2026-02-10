@@ -1,6 +1,8 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
+import Image from "next/image";
+import { SignOutButton } from "@/components/sign-out-button";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -10,12 +12,7 @@ export default async function DashboardPage() {
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-amber-800">
         <p className="font-medium">Your session doesn’t have a user id.</p>
         <p className="mt-1 text-sm">Sign out and sign back in to fix it.</p>
-        <a
-          href="/api/auth/signout?callbackUrl=%2F"
-          className="mt-4 inline-block rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700"
-        >
-          Sign out
-        </a>
+        <SignOutButton className="mt-4 inline-block rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700" />
       </div>
     );
   }
@@ -68,7 +65,13 @@ export default async function DashboardPage() {
           <div className="flex items-center gap-3 text-sm">
             {harvestConnected ? (
               <span className="flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-neutral-600">
-                <span className="text-green-600" aria-hidden>✓</span>
+                <Image
+                  src="/integrations/harvest.png"
+                  alt="Harvest connected"
+                  width={16}
+                  height={16}
+                  className="h-4 w-4 rounded"
+                />
                 Harvest
               </span>
             ) : (
@@ -77,12 +80,18 @@ export default async function DashboardPage() {
                 className="flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-orange-600 hover:bg-orange-100 hover:text-orange-700"
               >
                 <span className="text-neutral-400" aria-hidden>○</span>
-                Connect Harvest
+                Sign in to Harvest
               </Link>
             )}
             {jiraConnected ? (
               <span className="flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-neutral-600">
-                <span className="text-green-600" aria-hidden>✓</span>
+                <Image
+                  src="/integrations/jira.png"
+                  alt="Jira connected"
+                  width={16}
+                  height={16}
+                  className="h-4 w-4 rounded"
+                />
                 Jira
               </span>
             ) : (
@@ -91,7 +100,7 @@ export default async function DashboardPage() {
                 className="flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-600 hover:bg-blue-100 hover:text-blue-700"
               >
                 <span className="text-neutral-400" aria-hidden>○</span>
-                Connect Jira
+                Sign in to Jira
               </Link>
             )}
           </div>
@@ -106,7 +115,7 @@ export default async function DashboardPage() {
 
       {!projects?.length ? (
         <div className="rounded-xl border border-neutral-200 bg-white p-12 text-center">
-          <p className="text-neutral-500">You don’t have any projects yet.</p>
+          <p className="text-neutral-700">You don’t have any projects yet.</p>
           <Link
             href="/dashboard/projects/new"
             className="mt-4 inline-block text-sm font-medium text-neutral-900 underline hover:no-underline"
@@ -125,7 +134,7 @@ export default async function DashboardPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <h2 className="font-medium text-neutral-900">{project.name}</h2>
-                    <p className="mt-1 text-xs text-neutral-500">
+                    <p className="mt-1 text-xs text-neutral-700">
                       Added {new Date(project.created_at).toLocaleDateString()}
                     </p>
                   </div>

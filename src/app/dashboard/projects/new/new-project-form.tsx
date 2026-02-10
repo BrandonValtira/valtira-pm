@@ -118,7 +118,7 @@ export function NewProjectForm({ className }: { className?: string }) {
             Harvest projects (for hours in reports)
           </label>
           {harvestProjects.length === 0 ? (
-            <p className="mt-1 text-sm text-neutral-500">
+            <p className="mt-1 text-sm text-neutral-700">
               Connect Harvest in{" "}
               <a href="/dashboard/settings" className="text-neutral-700 underline">
                 Settings
@@ -139,7 +139,7 @@ export function NewProjectForm({ className }: { className?: string }) {
                   <label htmlFor={`harvest-${p.id}`} className="text-sm">
                     {p.name}
                     {p.client?.name && (
-                      <span className="ml-1 text-neutral-500">({p.client.name})</span>
+                      <span className="ml-1 text-neutral-700">({p.client.name})</span>
                     )}
                   </label>
                 </li>
@@ -188,7 +188,7 @@ export function NewProjectForm({ className }: { className?: string }) {
             Jira boards (for context/knowledge)
           </label>
           {jiraProjects.length === 0 ? (
-            <p className="mt-1 text-sm text-neutral-500">
+            <p className="mt-1 text-sm text-neutral-700">
               Connect Jira in{" "}
               <a href="/dashboard/settings" className="text-neutral-700 underline">
                 Settings
@@ -208,13 +208,13 @@ export function NewProjectForm({ className }: { className?: string }) {
                   />
                   <label htmlFor={`jira-${p.key}`} className="text-sm">
                     {p.name}
-                    <span className="ml-1 text-neutral-500">({p.key})</span>
+                    <span className="ml-1 text-neutral-700">({p.key})</span>
                   </label>
                 </li>
               ))}
             </ul>
           )}
-          <p className="mt-1 text-xs text-neutral-500">
+          <p className="mt-1 text-xs text-neutral-700">
             Optional. Selected boards are used to pull issues into project context.
           </p>
         </div>

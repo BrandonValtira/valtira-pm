@@ -88,7 +88,7 @@ export function TeamInvites({
     <div className="mt-8 space-y-8">
       <div className="rounded-xl border border-neutral-200 bg-white p-6">
         <h2 className="text-sm font-medium text-neutral-900">Invite by email</h2>
-        <p className="mt-1 text-sm text-neutral-500">
+        <p className="mt-1 text-sm text-neutral-700">
           They’ll get an email with a link to accept. After accepting, they sign in with Google and can connect Harvest & Jira in Settings.
         </p>
         <form onSubmit={handleInvite} className="mt-4 flex flex-wrap items-center gap-2">
@@ -100,14 +100,32 @@ export function TeamInvites({
             className="rounded-md border border-neutral-300 px-3 py-2 text-sm w-64"
             required
           />
-          <select
-            value={inviteRole}
-            onChange={(e) => setInviteRole(e.target.value as "pm" | "super_admin")}
-            className="rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900 bg-white"
-          >
-            <option value="pm">Project Manager</option>
-            <option value="super_admin">Super Admin</option>
-          </select>
+          <div className="relative">
+            <select
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value as "pm" | "super_admin")}
+              className="appearance-none rounded-md border border-neutral-300 pl-3 pr-8 py-2 text-sm text-neutral-900 bg-white"
+            >
+              <option value="pm">Project Manager</option>
+              <option value="super_admin">Super Admin</option>
+            </select>
+            <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-neutral-500">
+              <svg
+                viewBox="0 0 20 20"
+                aria-hidden="true"
+                className="h-4 w-4"
+              >
+                <path
+                  d="M5.25 7.5L10 12.25L14.75 7.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+          </div>
           <button
             type="submit"
             disabled={!!loading}
@@ -122,7 +140,7 @@ export function TeamInvites({
       {invites.length > 0 && (
         <div className="rounded-xl border border-neutral-200 bg-white p-6">
           <h2 className="text-sm font-medium text-neutral-900">Pending invites</h2>
-          <p className="mt-1 text-sm text-neutral-500">Revoke to invalidate the link, or resend to send a new email.</p>
+          <p className="mt-1 text-sm text-neutral-700">Revoke to invalidate the link, or resend to send a new email.</p>
           <ul className="mt-4 divide-y divide-neutral-100">
             {invites.map((inv) => (
               <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 py-3 first:pt-0">
@@ -132,7 +150,7 @@ export function TeamInvites({
                     {inv.role === "super_admin" ? "Super Admin" : "Project Manager"}
                   </span>
                 </div>
-                <span className="text-xs text-neutral-500">
+                <span className="text-xs text-neutral-700">
                   Expires {new Date(inv.expires_at).toLocaleDateString()}
                 </span>
                 <div className="flex gap-2">
@@ -161,7 +179,7 @@ export function TeamInvites({
 
       <div className="rounded-xl border border-neutral-200 bg-white p-6">
         <h2 className="text-sm font-medium text-neutral-900">Team members</h2>
-        <p className="mt-1 text-sm text-neutral-500">PMs who have accepted and signed in.</p>
+        <p className="mt-1 text-sm text-neutral-700">PMs who have accepted and signed in.</p>
         {users.length > 0 ? (
           <ul className="mt-4 divide-y divide-neutral-100">
             {users.map((u) => (
@@ -169,7 +187,7 @@ export function TeamInvites({
                 <div className="flex items-center gap-2">
                   <div>
                     <span className="font-medium text-neutral-900">{u.name || u.email}</span>
-                    <span className="ml-2 text-sm text-neutral-500">{u.email}</span>
+                    <span className="ml-2 text-sm text-neutral-700">{u.email}</span>
                   </div>
                   <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600">
                     {u.role === "super_admin" ? "Super Admin" : "Project Manager"}
@@ -182,7 +200,7 @@ export function TeamInvites({
             ))}
           </ul>
         ) : (
-          <p className="mt-4 text-sm text-neutral-500">No team members yet.</p>
+          <p className="mt-4 text-sm text-neutral-700">No team members yet.</p>
         )}
       </div>
     </div>

@@ -31,7 +31,7 @@ export function ProjectContent({
     <div>
       <Link
         href="/dashboard"
-        className="text-sm text-neutral-500 hover:text-neutral-700"
+        className="text-sm text-neutral-700 hover:text-neutral-900"
       >
         ← Back to projects
       </Link>
@@ -46,7 +46,7 @@ export function ProjectContent({
           }}
         />
       </div>
-      <p className="mt-1 text-sm text-neutral-500">
+      <p className="mt-1 text-sm text-neutral-700">
         Active automations: {automations.filter((a) => a.is_active).length}
       </p>
       <div className="mt-6 grid gap-4 sm:grid-cols-3">

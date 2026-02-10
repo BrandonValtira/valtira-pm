@@ -1,25 +1,78 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import Image from "next/image";
+import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export function HarvestConnectForm({ className }: { className?: string }) {
+export function HarvestConnectForm({
+  className,
+  connected,
+}: {
+  className?: string;
+  connected?: boolean;
+}) {
   const searchParams = useSearchParams();
   const harvest = searchParams.get("harvest");
   const error = searchParams.get("error");
+  const router = useRouter();
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  async function handleDisconnect() {
+    try {
+      setDisconnecting(true);
+      const res = await fetch("/api/integrations/harvest", { method: "DELETE" });
+      if (!res.ok) {
+        // Fail silently for now; could show a toast/message here
+        return;
+      }
+      router.refresh();
+    } finally {
+      setDisconnecting(false);
+    }
+  }
 
   return (
     <div className={className}>
-      <a
-        href="/api/integrations/harvest/connect"
-        className="inline-flex items-center justify-center gap-2 rounded-md bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700"
-      >
-        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm3.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
-        </svg>
-        Sign in with Harvest
-      </a>
+      {!connected ? (
+        <a
+          href="/api/integrations/harvest/connect"
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700"
+        >
+          <Image
+            src="/integrations/harvest.png"
+            alt="Harvest"
+            width={20}
+            height={20}
+            className="h-5 w-5 rounded"
+          />
+          Sign in with Harvest
+        </a>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-sm text-green-700">
+            <Image
+              src="/integrations/harvest.png"
+              alt="Harvest connected"
+              width={16}
+              height={16}
+              className="h-4 w-4 rounded"
+            />
+            Harvest connected
+          </span>
+          <button
+            type="button"
+            onClick={handleDisconnect}
+            disabled={disconnecting}
+            className="inline-flex items-center justify-center rounded-md border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-60"
+          >
+            {disconnecting ? "Disconnecting…" : "Disconnect"}
+          </button>
+        </div>
+      )}
       {harvest === "connected" && (
-        <p className="mt-2 text-sm text-green-600">Harvest connected. You can select Harvest projects when adding a project.</p>
+        <p className="mt-2 text-sm text-green-600">
+          Harvest connected. You can select Harvest projects when adding a project.
+        </p>
       )}
       {error?.startsWith("harvest_") && (
         <p className="mt-2 text-sm text-red-600">

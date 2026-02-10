@@ -18,11 +18,11 @@ export default async function HomePage() {
           <div className="flex justify-center">
             <ValtiraLogo height={48} />
           </div>
-          <p className="mt-3 text-center text-sm leading-relaxed text-neutral-500">
+          <p className="mt-3 text-center text-sm leading-relaxed text-neutral-700">
             {TAGLINE}
           </p>
           <GoogleSignInButton className="mt-8 flex w-full items-center justify-center gap-3 rounded-xl bg-neutral-900 px-4 py-3.5 text-sm font-medium text-white shadow-sm transition hover:bg-neutral-800 active:scale-[0.99]" />
-          <p className="mt-6 text-center text-xs text-neutral-400">
+          <p className="mt-6 text-center text-xs text-neutral-600">
             Invite-only. Contact your admin for access.
           </p>
         </div>

@@ -32,7 +32,7 @@ export default async function ProjectEditPage({
     <div>
       <Link
         href={`/dashboard/project/${id}`}
-        className="text-sm text-neutral-500 hover:text-neutral-700"
+        className="text-sm text-neutral-700 hover:text-neutral-900"
       >
         ← Back to project
       </Link>

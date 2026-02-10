@@ -120,7 +120,7 @@ export function EditProjectForm({
   return (
     <form onSubmit={handleSubmit} className="rounded-xl border border-neutral-200 bg-white p-6">
       <h2 className="text-lg font-medium text-neutral-900">Edit {projectName}</h2>
-      <p className="mt-1 text-sm text-neutral-500">
+      <p className="mt-1 text-sm text-neutral-700">
         Update Harvest projects, Jira keys, or report recipients.
       </p>
 
@@ -147,7 +147,7 @@ export function EditProjectForm({
               Harvest projects (for hours in reports)
             </label>
             {harvestProjects.length === 0 ? (
-              <p className="mt-1 text-sm text-neutral-500">
+              <p className="mt-1 text-sm text-neutral-700">
                 Connect Harvest in{" "}
                 <Link href="/dashboard/settings" className="text-neutral-700 underline">
                   Settings
@@ -168,7 +168,7 @@ export function EditProjectForm({
                     <label htmlFor={`harvest-${p.id}`} className="text-sm">
                       {p.name}
                       {p.client?.name && (
-                        <span className="ml-1 text-neutral-500">({p.client.name})</span>
+                        <span className="ml-1 text-neutral-700">({p.client.name})</span>
                       )}
                     </label>
                   </li>
@@ -184,7 +184,7 @@ export function EditProjectForm({
               Jira project keys
             </label>
             {jiraProjects.length === 0 ? (
-              <p className="mt-1 text-sm text-neutral-500">
+              <p className="mt-1 text-sm text-neutral-700">
                 Connect Jira in{" "}
                 <Link href="/dashboard/settings" className="text-neutral-700 underline">
                   Settings
@@ -204,7 +204,7 @@ export function EditProjectForm({
                     />
                     <label htmlFor={`jira-${p.key}`} className="text-sm">
                       {p.name}
-                      <span className="ml-1 text-neutral-500">({p.key})</span>
+                      <span className="ml-1 text-neutral-700">({p.key})</span>
                     </label>
                   </li>
                 ))}

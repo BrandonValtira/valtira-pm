@@ -10,7 +10,7 @@ export default function AuthErrorPage() {
       <div className="relative z-10 flex min-h-screen flex-col items-center justify-center gap-6 px-4">
       <div className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-8 shadow-sm text-center">
         <h1 className="text-xl font-semibold text-neutral-900">Access denied</h1>
-        <p className="mt-2 text-sm text-neutral-500">
+        <p className="mt-2 text-sm text-neutral-700">
           Your account isn’t on the invite list, or something went wrong. Contact your admin to get access.
         </p>
         <Link

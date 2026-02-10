@@ -47,7 +47,7 @@ export default async function TeamPage() {
   return (
     <div>
       <h1 className="text-2xl font-semibold text-neutral-900">Team</h1>
-      <p className="mt-1 text-sm text-neutral-500">
+      <p className="mt-1 text-sm text-neutral-700">
         Invite PMs by email. Once they accept, they can sign in with Google and connect Harvest & Jira in Settings.
       </p>
       <TeamInvites users={users ?? []} invites={invites ?? []} />
