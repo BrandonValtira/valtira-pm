@@ -1,10 +1,9 @@
 "use server";
 
 import { signOut } from "@/auth";
+import { getAppBaseUrl } from "@/lib/app-url";
 
 export async function signOutAction() {
-  const base =
-    process.env.NEXTAUTH_URL?.replace(/\/$/, "") ||
-    "https://brandonvaltira-valtira-pm.vercel.app";
+  const base = getAppBaseUrl();
   await signOut({ redirectTo: `${base}/` });
 }

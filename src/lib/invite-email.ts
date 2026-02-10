@@ -1,13 +1,7 @@
 import { Resend } from "resend";
+import { getAppBaseUrl } from "@/lib/app-url";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-
-export function getAppBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  if (process.env.NEXTAUTH_URL) return process.env.NEXTAUTH_URL;
-  if (process.env.APP_URL) return process.env.APP_URL;
-  return "http://localhost:3000";
-}
 
 export async function sendInviteEmail(to: string, token: string): Promise<{ error?: string }> {
   if (!resend) return { error: "Email not configured (RESEND_API_KEY)" };

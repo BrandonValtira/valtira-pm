@@ -3,6 +3,7 @@ import Google from "next-auth/providers/google";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
   providers: [
     Google({
       clientId: process.env.AUTH_GOOGLE_ID!,
@@ -66,6 +67,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async session({ session, token }) {
       if (!session.user) return session;
+      // Invalidate session when a new build is deployed (different commit SHA)
+      const currentBuildId = process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.SESSION_BUILD_ID ?? "";
+      const tokenBuildId = (token.buildId as string) ?? "";
+      if (currentBuildId && tokenBuildId !== currentBuildId) {
+        return session;
+      }
       // Prefer userId stored in JWT at sign-in (most reliable)
       const userId = token.userId as string | undefined;
       const role = token.role as string | undefined;
@@ -115,6 +122,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async jwt({ token, user }) {
       if (user?.email) token.email = user.email;
+      const currentBuildId = process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.SESSION_BUILD_ID ?? "";
+      if (currentBuildId) token.buildId = currentBuildId;
       // At sign-in: resolve our DB user and persist id/role/status so session has them every time
       if (user?.email) {
         try {
