@@ -1,6 +1,11 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getAppBaseUrl } from "@/lib/app-url";
+
+if (!process.env.NEXTAUTH_URL && process.env.VERCEL_URL) {
+  process.env.NEXTAUTH_URL = `https://${process.env.VERCEL_URL}`;
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
@@ -11,6 +16,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
+    async redirect({ url, baseUrl }) {
+      const base = baseUrl || getAppBaseUrl();
+      if (url.startsWith("/")) return `${base}${url}`;
+      try {
+        if (new URL(url).origin === base) return url;
+      } catch {
+        // ignore
+      }
+      return base;
+    },
     async signIn({ user, profile }) {
       // Google can put email on user or profile
       const email = (user?.email ?? (profile as { email?: string })?.email)?.trim();
