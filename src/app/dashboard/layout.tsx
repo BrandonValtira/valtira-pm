@@ -71,12 +71,12 @@ export default async function DashboardLayout({
                     )}
                   </>
                 )}
-                <Link
+                <a
                   href="/api/auth/signout?callbackUrl=%2F"
                   className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 shadow-sm transition hover:bg-neutral-50 hover:border-neutral-300"
                 >
                   Sign out
-                </Link>
+                </a>
               </div>
             )}
           </nav>

@@ -10,12 +10,12 @@ export default async function DashboardPage() {
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-amber-800">
         <p className="font-medium">Your session doesn’t have a user id.</p>
         <p className="mt-1 text-sm">Sign out and sign back in to fix it.</p>
-        <Link
+        <a
           href="/api/auth/signout?callbackUrl=%2F"
           className="mt-4 inline-block rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700"
         >
           Sign out
-        </Link>
+        </a>
       </div>
     );
   }
