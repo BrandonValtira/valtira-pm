@@ -3,5 +3,8 @@
 import { signOut } from "@/auth";
 
 export async function signOutAction() {
-  await signOut({ redirectTo: "/" });
+  const base =
+    process.env.NEXTAUTH_URL?.replace(/\/$/, "") ||
+    "https://brandonvaltira-valtira-pm.vercel.app";
+  await signOut({ redirectTo: `${base}/` });
 }
