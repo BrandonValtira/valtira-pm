@@ -48,25 +48,29 @@ export default async function DashboardLayout({
                 Team
               </span>
             )}
-            {session?.user && (
+            {session && (
               <div className="ml-4 flex items-center gap-3 border-l border-neutral-200 pl-6">
-                <span className="text-sm text-neutral-600 truncate max-w-[140px]">
-                  {session.user.name ?? session.user.email}
-                </span>
-                {session.user.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={session.user.image}
-                    alt=""
-                    width={32}
-                    height={32}
-                    className="h-8 w-8 rounded-full border border-neutral-200 object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-200 text-xs font-medium text-neutral-600">
-                    {(session.user.name ?? session.user.email ?? "?")[0].toUpperCase()}
-                  </span>
+                {session.user && (
+                  <>
+                    <span className="text-sm text-neutral-600 truncate max-w-[140px]">
+                      {session.user.name ?? session.user.email ?? "Signed in"}
+                    </span>
+                    {session.user.image ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={session.user.image}
+                        alt=""
+                        width={32}
+                        height={32}
+                        className="h-8 w-8 rounded-full border border-neutral-200 object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-200 text-xs font-medium text-neutral-600">
+                        {(session.user.name ?? session.user.email ?? "?")[0].toUpperCase()}
+                      </span>
+                    )}
+                  </>
                 )}
                 <form action={signOutAction} className="flex items-center">
                   <button

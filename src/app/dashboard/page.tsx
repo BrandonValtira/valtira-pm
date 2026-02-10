@@ -1,14 +1,24 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
+import { signOutAction } from "@/app/auth/actions";
 
 export default async function DashboardPage() {
   const session = await auth();
   const userId = (session?.user as { id?: string })?.id;
   if (!userId) {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
-        Your session doesn’t have a user id. Try signing out and back in.
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-amber-800">
+        <p className="font-medium">Your session doesn’t have a user id.</p>
+        <p className="mt-1 text-sm">Sign out and sign back in to fix it.</p>
+        <form action={signOutAction} className="mt-4">
+          <button
+            type="submit"
+            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700"
+          >
+            Sign out
+          </button>
+        </form>
       </div>
     );
   }

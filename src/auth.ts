@@ -64,19 +64,34 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       await upsertUser(supabase, userWithEmail);
       return true;
     },
-    async session({ session }) {
+    async session({ session, token }) {
       if (!session.user) return session;
+      // Prefer userId stored in JWT at sign-in (most reliable)
+      const userId = token.userId as string | undefined;
+      const role = token.role as string | undefined;
+      const status = token.status as string | undefined;
+      if (userId) {
+        return {
+          ...session,
+          user: {
+            ...session.user,
+            id: userId,
+            role: role as "super_admin" | "pm" | undefined,
+            status: status as "invited" | "active" | undefined,
+          },
+        };
+      }
+      // Fallback: resolve from DB (e.g. old sessions before we set token.userId)
       const supabase = createAdminClient();
-      const email = session.user.email?.trim().toLowerCase();
-      const emailRaw = session.user.email?.trim();
+      const email = (session.user.email ?? (token.email as string))?.trim().toLowerCase();
+      const emailRaw = (session.user.email ?? (token.email as string))?.trim();
       if (!email && !emailRaw) return session;
 
       let dbUser = await findUserByEmail(supabase, email ?? emailRaw!, emailRaw);
       if (!dbUser) {
-        // Self-heal: user has OAuth session but no row in our DB (e.g. upsert failed at signIn)
         try {
           await upsertUser(supabase, {
-            email: session.user.email ?? undefined,
+            email: session.user.email ?? (token.email as string) ?? undefined,
             name: session.user.name ?? null,
             image: session.user.image ?? null,
           });
@@ -86,14 +101,44 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
       }
       if (dbUser) {
-        session.user.id = dbUser.id;
-        session.user.role = dbUser.role as "super_admin" | "pm";
-        session.user.status = dbUser.status as "invited" | "active";
+        return {
+          ...session,
+          user: {
+            ...session.user,
+            id: dbUser.id,
+            role: dbUser.role as "super_admin" | "pm",
+            status: dbUser.status as "invited" | "active",
+          },
+        };
       }
       return session;
     },
     async jwt({ token, user }) {
       if (user?.email) token.email = user.email;
+      // At sign-in: resolve our DB user and persist id/role/status so session has them every time
+      if (user?.email) {
+        try {
+          const supabase = createAdminClient();
+          const email = String(user.email).trim().toLowerCase();
+          const emailRaw = String(user.email).trim();
+          let dbUser = await findUserByEmail(supabase, email, emailRaw);
+          if (!dbUser) {
+            await upsertUser(supabase, {
+              email: user.email,
+              name: user.name ?? null,
+              image: user.image ?? null,
+            });
+            dbUser = await findUserByEmail(supabase, email, emailRaw);
+          }
+          if (dbUser) {
+            token.userId = dbUser.id;
+            token.role = dbUser.role;
+            token.status = dbUser.status;
+          }
+        } catch {
+          // ignore
+        }
+      }
       return token;
     },
   },
