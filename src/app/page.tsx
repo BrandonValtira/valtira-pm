@@ -3,6 +3,7 @@ import Link from "next/link";
 import { GoogleSignInButton } from "@/components/google-sign-in-button";
 import { LogoBackground } from "@/components/logo-background";
 import { ValtiraLogo } from "@/components/valtira-logo";
+import { signOutAction } from "@/app/auth/actions";
 
 const TAGLINE = "Project management and client reporting assistant";
 
@@ -21,12 +22,22 @@ export default async function HomePage() {
             {TAGLINE}
           </p>
           {session ? (
-            <Link
-              href="/dashboard"
-              className="mt-8 flex w-full items-center justify-center rounded-xl bg-neutral-900 px-4 py-3.5 text-sm font-medium text-white shadow-sm transition hover:bg-neutral-800 active:scale-[0.99]"
-            >
-              Go to dashboard
-            </Link>
+            <div className="mt-8 flex flex-col gap-3">
+              <Link
+                href="/dashboard"
+                className="flex w-full items-center justify-center rounded-xl bg-neutral-900 px-4 py-3.5 text-sm font-medium text-white shadow-sm transition hover:bg-neutral-800 active:scale-[0.99]"
+              >
+                Go to dashboard
+              </Link>
+              <form action={signOutAction} className="w-full">
+                <button
+                  type="submit"
+                  className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-sm font-medium text-neutral-600 transition hover:bg-neutral-50 hover:text-neutral-900"
+                >
+                  Sign out
+                </button>
+              </form>
+            </div>
           ) : (
             <GoogleSignInButton className="mt-8 flex w-full items-center justify-center gap-3 rounded-xl bg-neutral-900 px-4 py-3.5 text-sm font-medium text-white shadow-sm transition hover:bg-neutral-800 active:scale-[0.99]" />
           )}

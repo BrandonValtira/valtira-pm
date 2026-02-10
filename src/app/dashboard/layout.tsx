@@ -68,10 +68,10 @@ export default async function DashboardLayout({
                     {(session.user.name ?? session.user.email ?? "?")[0].toUpperCase()}
                   </span>
                 )}
-                <form action={signOutAction}>
+                <form action={signOutAction} className="flex items-center">
                   <button
                     type="submit"
-                    className="text-sm text-neutral-500 hover:text-neutral-900 underline underline-offset-2"
+                    className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 shadow-sm transition hover:bg-neutral-50 hover:border-neutral-300"
                   >
                     Sign out
                   </button>
