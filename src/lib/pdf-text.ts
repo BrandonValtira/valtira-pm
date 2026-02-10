@@ -5,7 +5,6 @@
 export async function extractPdfText(buffer: Buffer): Promise<string> {
   if (!buffer || buffer.length === 0) return "";
   try {
-    // @ts-expect-error - pdf-parse has no type declarations
     const mod = await import("pdf-parse");
     const pdfParse = (mod as { default: (buf: Buffer, opts?: { max?: number }) => Promise<{ text?: string }> }).default;
     const data = await pdfParse(buffer, { max: 0 });
