@@ -117,6 +117,7 @@ export async function GET(req: Request) {
     }
   }
 
+  const now = new Date();
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   const { data: needsReminder } = await supabase
     .from("reports")

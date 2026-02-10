@@ -71,7 +71,7 @@ export function generateReportPdf(report: ReportForPdf): ArrayBuffer {
   let y = 20;
   const margin = 40;
 
-  const clientNames = [...new Set(harvestProjects.map((p) => p.client_name).filter(Boolean))] as string[];
+  const clientNames = Array.from(new Set(harvestProjects.map((p) => p.client_name).filter(Boolean))) as string[];
   const clientLabel = clientNames.length > 0 ? clientNames.join(", ") : null;
   const projectLabel = projectNames.length > 0 ? projectNames.join(", ") : "Harvest project";
   const titleLine = [clientLabel, projectLabel].filter(Boolean).join(" · ");

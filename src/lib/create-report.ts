@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getHarvestProjects, getHarvestTimeEntries, getHarvestProjectBudgetReport } from "@/lib/harvest";
+import { getHarvestProjects, getHarvestTimeEntries, getHarvestProjectBudgetReport, type HarvestProject, type HarvestProjectBudgetResult, type HarvestTimeEntry } from "@/lib/harvest";
 import { getHarvestAccess } from "@/lib/harvest-auth";
 
 function getLastWeekBounds(): { start: string; end: string } {
@@ -47,12 +47,12 @@ async function buildHarvestSnapshot(
     getHarvestProjectBudgetReport(harvest.accountId, harvest.accessToken),
   ]);
   const projectSet = new Set(harvestIds);
-  const budgetByProjectId = new Map(
-    budgetReport.filter((r: { project_id: number }) => projectSet.has(r.project_id)).map((r: { project_id: number }) => [r.project_id, r])
+  const budgetByProjectId = new Map<number, HarvestProjectBudgetResult>(
+    budgetReport.filter((r) => projectSet.has(r.project_id)).map((r) => [r.project_id, r])
   );
   const harvestProjectsForReport = allProjects
-    .filter((p: { id: number }) => projectSet.has(p.id))
-    .map((p: { id: number; name: string; client?: { name: string }; budget?: number; cost_budget?: number; hourly_rate?: number; budget_by?: string; budget_spent?: number; budget_remaining?: number }) => {
+    .filter((p: HarvestProject) => projectSet.has(p.id))
+    .map((p: HarvestProject) => {
       const budgetRow = budgetByProjectId.get(p.id);
       return {
         id: p.id,
@@ -70,7 +70,7 @@ async function buildHarvestSnapshot(
     fetchedAt: new Date().toISOString(),
     harvestProjectNames: harvestProjectsForReport.map((p: { name: string }) => p.name),
     harvestProjects: harvestProjectsForReport,
-    timeEntries: timeEntries.map((e: { id: number; project: unknown; task: unknown; user: unknown; spent_date: string; hours: number; notes: string | null; external_reference: unknown }) => ({
+    timeEntries: timeEntries.map((e: HarvestTimeEntry) => ({
       id: e.id,
       project: e.project,
       task: e.task,
