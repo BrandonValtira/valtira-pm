@@ -607,12 +607,12 @@ export function ReportSection({
                         title={a.is_active ? "Active" : "Inactive"}
                         onClick={() => toggleAutomation(a.id, !a.is_active)}
                         disabled={!!loading}
-                        className={`relative inline-flex h-6 w-10 shrink-0 cursor-pointer rounded-full border-0 transition-colors focus:outline-none focus:ring-2 focus:ring-neutral-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+                        className={`toggle relative inline-flex h-6 w-10 shrink-0 cursor-pointer rounded-full border-0 transition-colors focus:outline-none focus:ring-2 focus:ring-neutral-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
                           a.is_active ? "bg-green-600" : "bg-neutral-300"
                         }`}
                       >
                         <span
-                          className={`pointer-events-none absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                          className={`toggle-thumb pointer-events-none absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
                             a.is_active ? "translate-x-5" : "translate-x-0.5"
                           }`}
                         />
@@ -669,18 +669,32 @@ export function ReportSection({
               <label htmlFor="generate-period" className="block text-sm font-medium text-neutral-900">
                 Period
               </label>
-              <select
-                id="generate-period"
-                value={generatePeriodValue}
-                onChange={(e) => setGeneratePeriodValue(e.target.value)}
-                className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
-              >
-                {(generatePeriodModal === "week" ? getWeekPeriodOptions() : getMonthPeriodOptions()).map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <div className="relative mt-1">
+                <select
+                  id="generate-period"
+                  value={generatePeriodValue}
+                  onChange={(e) => setGeneratePeriodValue(e.target.value)}
+                  className="block w-full appearance-none rounded-md border border-neutral-300 pl-3 pr-8 py-2 text-sm text-neutral-900 bg-white"
+                >
+                  {(generatePeriodModal === "week" ? getWeekPeriodOptions() : getMonthPeriodOptions()).map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-neutral-500">
+                  <svg viewBox="0 0 20 20" aria-hidden className="h-4 w-4">
+                    <path
+                      d="M5.25 7.5L10 12.25L14.75 7.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+              </div>
             </div>
             <div className="mt-6 flex gap-2">
               <button

@@ -23,26 +23,26 @@ export default async function DashboardLayout({
           <nav className="flex items-center gap-6">
             <Link
               href="/dashboard"
-              className="text-sm text-neutral-600 hover:text-neutral-900"
+              className="text-sm text-neutral-900 hover:text-neutral-900"
             >
               My projects
             </Link>
             <Link
               href="/dashboard/settings"
-              className="text-sm text-neutral-600 hover:text-neutral-900"
+              className="text-sm text-neutral-900 hover:text-neutral-900"
             >
               Settings
             </Link>
             {(session?.user as { role?: string })?.role === "super_admin" ? (
               <Link
                 href="/dashboard/team"
-                className="text-sm text-neutral-700 hover:text-neutral-900"
+                className="text-sm text-neutral-900 hover:text-neutral-900"
               >
                 Team
               </Link>
             ) : (
               <span
-                className="text-sm text-neutral-600 cursor-not-allowed"
+                className="text-sm text-neutral-900 cursor-not-allowed opacity-60"
                 title="Team management is only available to Super Admins"
               >
                 Team

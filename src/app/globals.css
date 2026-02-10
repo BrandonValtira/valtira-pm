@@ -7,6 +7,11 @@
   --foreground: #171717;
 }
 
+html.dark {
+  --background: #020617;
+  --foreground: #f9fafb;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
@@ -20,10 +25,82 @@ body {
   font-family: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
 }
 
+.dark body {
+  background: #020617;
+  color: var(--foreground);
+}
+
+.dark .bg-white,
+.dark .bg-neutral-50,
+.dark .bg-neutral-50\/50 {
+  background-color: #020617 !important;
+}
+
+.dark .border-neutral-200,
+.dark .border-neutral-300 {
+  border-color: #334155 !important;
+}
+
+.dark .text-neutral-900,
+.dark .text-neutral-800,
+.dark .text-neutral-700 {
+  color: #f9fafb !important;
+}
+
+.dark .text-neutral-600,
+.dark .text-neutral-500,
+.dark .text-neutral-400 {
+  color: #e5e7eb !important;
+}
+
+.dark .bg-neutral-900 {
+  background-color: #2e74cb !important;
+}
+
+.dark .hover\:bg-neutral-800:hover {
+  background-color: #265fb0 !important;
+}
+
+/* Dark-mode hover backgrounds: avoid white-on-white */
+.dark .hover\:bg-neutral-50:hover,
+.dark .hover\:bg-neutral-100:hover,
+.dark .hover\:bg-neutral-100\/80:hover {
+  background-color: #111827 !important; /* slate-900-ish */
+}
+
+.dark input,
+.dark textarea,
+.dark select {
+  background-color: #020617;
+  border-color: #334155;
+}
+
+.dark .toggle {
+  background-color: #ffffff !important;
+}
+
+.dark .toggle-thumb {
+  background-color: #2e74cb !important;
+}
+
+.dark [data-valtira-logo] .logo-text {
+  fill: #ffffff;
+}
+
 @layer base {
   input::placeholder,
   textarea::placeholder {
     @apply text-neutral-600;
+  }
+
+  input:focus::placeholder,
+  textarea:focus::placeholder {
+    @apply text-neutral-900;
+  }
+
+  input,
+  textarea {
+    @apply text-neutral-900;
   }
 }
 

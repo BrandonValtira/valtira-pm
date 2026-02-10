@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-type HarvestProject = { id: number; name: string; code: string | null; client: { name: string } };
+type HarvestProject = { id: number; name: string; code: string | null; is_active?: boolean; client: { name: string } };
 type JiraProject = { key: string; name: string; id: string };
 
 export function NewProjectForm({ className }: { className?: string }) {
@@ -127,23 +127,31 @@ export function NewProjectForm({ className }: { className?: string }) {
             </p>
           ) : (
             <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto rounded-md border border-neutral-200 p-2">
-              {harvestProjects.map((p) => (
-                <li key={p.id} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id={`harvest-${p.id}`}
-                    checked={selectedHarvestIds.includes(p.id)}
-                    onChange={() => toggleHarvest(p.id)}
-                    className="h-4 w-4 rounded border-neutral-300"
-                  />
-                  <label htmlFor={`harvest-${p.id}`} className="text-sm">
-                    {p.name}
-                    {p.client?.name && (
-                      <span className="ml-1 text-neutral-700">({p.client.name})</span>
-                    )}
-                  </label>
-                </li>
-              ))}
+              {harvestProjects
+                .filter((p) => p.is_active !== false)
+                .sort((a, b) => {
+                  const clientA = a.client?.name ?? "";
+                  const clientB = b.client?.name ?? "";
+                  const cmp = clientA.localeCompare(clientB, undefined, { sensitivity: "base" });
+                  return cmp !== 0 ? cmp : a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+                })
+                .map((p) => (
+                  <li key={p.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id={`harvest-${p.id}`}
+                      checked={selectedHarvestIds.includes(p.id)}
+                      onChange={() => toggleHarvest(p.id)}
+                      className="h-4 w-4 rounded border-neutral-300"
+                    />
+                    <label htmlFor={`harvest-${p.id}`} className="text-sm">
+                      {p.name}
+                      {p.client?.name && (
+                        <span className="ml-1 text-neutral-700">({p.client.name})</span>
+                      )}
+                    </label>
+                  </li>
+                ))}
             </ul>
           )}
         </div>
@@ -183,41 +191,7 @@ export function NewProjectForm({ className }: { className?: string }) {
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-neutral-700">
-            Jira boards (for context/knowledge)
-          </label>
-          {jiraProjects.length === 0 ? (
-            <p className="mt-1 text-sm text-neutral-700">
-              Connect Jira in{" "}
-              <a href="/dashboard/settings" className="text-neutral-700 underline">
-                Settings
-              </a>{" "}
-              to select boards.
-            </p>
-          ) : (
-            <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto rounded-md border border-neutral-200 p-2">
-              {jiraProjects.map((p) => (
-                <li key={p.id} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id={`jira-${p.key}`}
-                    checked={selectedJiraKeys.includes(p.key)}
-                    onChange={() => toggleJira(p.key)}
-                    className="h-4 w-4 rounded border-neutral-300"
-                  />
-                  <label htmlFor={`jira-${p.key}`} className="text-sm">
-                    {p.name}
-                    <span className="ml-1 text-neutral-700">({p.key})</span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="mt-1 text-xs text-neutral-700">
-            Optional. Selected boards are used to pull issues into project context.
-          </p>
-        </div>
+        
       </div>
 
       {error && (
