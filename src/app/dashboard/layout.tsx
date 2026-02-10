@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import Link from "next/link";
 import { LogoBackground } from "@/components/logo-background";
 import { ValtiraLogo } from "@/components/valtira-logo";
+import { signOutAction } from "@/app/auth/actions";
 
 export default async function DashboardLayout({
   children,
@@ -48,7 +49,7 @@ export default async function DashboardLayout({
               </span>
             )}
             {session?.user && (
-              <div className="ml-4 flex items-center gap-2 border-l border-neutral-200 pl-6">
+              <div className="ml-4 flex items-center gap-3 border-l border-neutral-200 pl-6">
                 <span className="text-sm text-neutral-600 truncate max-w-[140px]">
                   {session.user.name ?? session.user.email}
                 </span>
@@ -67,6 +68,14 @@ export default async function DashboardLayout({
                     {(session.user.name ?? session.user.email ?? "?")[0].toUpperCase()}
                   </span>
                 )}
+                <form action={signOutAction}>
+                  <button
+                    type="submit"
+                    className="text-sm text-neutral-500 hover:text-neutral-900 underline underline-offset-2"
+                  >
+                    Sign out
+                  </button>
+                </form>
               </div>
             )}
           </nav>
