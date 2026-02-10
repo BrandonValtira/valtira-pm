@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Valtira PM
 
-## Getting Started
+Project management and client reporting: Harvest hours, PDF reports, and email to clients. Built for Valtira PMs (max ~8 users).
 
-First, run the development server:
+## Stack
+
+- **Next.js 14** (App Router), TypeScript, Tailwind
+- **Supabase** – Postgres + Storage
+- **NextAuth (Auth.js v5)** – Google sign-in, invite-only access
+- **Super admin** – Add PMs by email; system emails sent from your Gmail (Phase 2)
+
+## Setup
+
+### 1. Environment
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Edit `.env.local`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **Supabase**: Create a project at [supabase.com](https://supabase.com). In Project Settings → API you’ll find:
+  - `NEXT_PUBLIC_SUPABASE_URL`
+  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  - `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API → service_role, keep secret)
+- **NextAuth**: Set `AUTH_SECRET` (e.g. `openssl rand -base64 32`). Create a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/apis/credentials) and set `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`.
+- **Super admin**: Set `SUPER_ADMIN_EMAIL` to your email. Only this user can sign in before any PMs are added, and only they can access the Team page and send system emails.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 2. Database (choose one)
 
-## Learn More
+**Option A – Local Supabase (Docker required)**  
+1. Start Docker Desktop.  
+2. Run: `npm run supabase:start` (starts Postgres + Supabase locally and applies migrations).  
+3. Run: `npm run supabase:env` (writes Supabase URL and keys into `.env.local`).  
+4. Add `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, and `SUPER_ADMIN_EMAIL` to `.env.local`.
 
-To learn more about Next.js, take a look at the following resources:
+**Option B – Hosted Supabase (no Docker)**  
+1. Create a project at [supabase.com/dashboard](https://supabase.com/dashboard) (Sign in → New project).  
+2. In the dashboard, open **SQL Editor** → New query, paste the contents of `supabase/schema.sql`, and run it.  
+3. In **Project Settings → API**, copy the Project URL, `anon` key, and `service_role` key into `.env.local` as `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 3. Run
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm install
+npm run dev
+```
 
-## Deploy on Vercel
+Open [http://localhost:3000](http://localhost:3000). Sign in with the Google account that matches `SUPER_ADMIN_EMAIL`. You’ll be created as `super_admin` and can use **Dashboard → Team** (next phase: add PMs by email and invite flow).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 4. Phase 2 schema (Jira + integrations)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+If you already ran the initial `supabase/schema.sql`, run the second migration so projects can store Jira keys and user_integrations can store Jira:
+
+1. In Supabase **SQL Editor**, open and run the contents of `supabase/migrations/20250209100000_add_jira_and_integrations.sql`.
+
+## Phase 2 (current)
+
+- **Settings** → Connect **Harvest** (Personal Access Token + Account ID) and **Jira** (site URL, email, API token).
+- **Add project** → Name, select Harvest projects (for hours), client emails (report recipients), and optional Jira project keys (for context/knowledge).
+- Project detail page shows linked Harvest IDs, Jira keys, and recipients.
+- API: `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/[id]`, `GET /api/integrations/harvest/projects`, `GET /api/integrations/jira/projects`.
+
+Reports + PDF send (Resend) are done. Next for Release 1: approval flow, invite PMs, automations runner (see ROADMAP.md).
+
+## Roadmap
+
+See **[ROADMAP.md](./ROADMAP.md)** for Release 1 (core: approval flow, invite PMs, automations → GitHub → Vercel → OAuth URLs) and Release 2 (contextual documents, mood, summaries, chat).
+
+## Launch checklist (Vercel + pm.valtira.net)
+
+When you deploy to Vercel and point the app to **pm.valtira.net**:
+
+- **OAuth – redirect/callback URLs**  
+  Add production URLs to each OAuth app so sign-in and integrations work:
+  - **Google (NextAuth):** add `https://pm.valtira.net/api/auth/callback/google` (and any other NextAuth providers you use). Set `NEXTAUTH_URL` (or `AUTH_URL`) in Vercel to `https://pm.valtira.net`.
+  - **Harvest:** add `https://pm.valtira.net/api/auth/callback/harvest`.
+  - **Jira/Atlassian:** add `https://pm.valtira.net/api/auth/callback/jira`.
+
+- **Resend – DNS records**  
+  Update your DNS (at your domain provider for `valtira.net`) with the records Resend gives you for the domain you use as the "From" address (e.g. `reports@valtira.net` or `pm@valtira.net`). In [Resend Dashboard → Domains](https://resend.com/domains), add the domain and add the suggested MX, SPF, DKIM (or CNAME) records so report emails send and don’t land in spam.

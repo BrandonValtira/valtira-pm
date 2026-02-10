@@ -1,0 +1,2 @@
+-- Optional: add seed data for local development
+-- e.g. INSERT INTO users (email, name, role, status) VALUES ('dev@valtira.com', 'Dev', 'super_admin', 'active');
