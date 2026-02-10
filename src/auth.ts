@@ -67,11 +67,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session }) {
       if (session.user) {
         const supabase = createAdminClient();
-        const { data: dbUser } = await supabase
+        const email = session.user.email?.trim().toLowerCase();
+        const emailRaw = session.user.email?.trim();
+        if (!email && !emailRaw) return session;
+        let { data: dbUser } = await supabase
           .from("users")
           .select("id, role, status")
-          .eq("email", session.user.email!)
+          .eq("email", email ?? emailRaw!)
           .single();
+        if (!dbUser && emailRaw && emailRaw !== email) {
+          const { data: fallback } = await supabase
+            .from("users")
+            .select("id, role, status")
+            .eq("email", emailRaw)
+            .single();
+          dbUser = fallback;
+        }
         if (dbUser) {
           session.user.id = dbUser.id;
           session.user.role = dbUser.role as "super_admin" | "pm";
@@ -103,10 +114,12 @@ async function upsertUser(
     (superAdminFromEnv && userEmail === superAdminFromEnv) ||
     (userEmail ? superAdminAllowlist.includes(userEmail) : false);
 
+  const emailLower = user.email?.trim().toLowerCase() ?? "";
+  if (!emailLower) return;
   const { data: existing } = await supabase
     .from("users")
     .select("id")
-    .eq("email", user.email!)
+    .eq("email", emailLower)
     .single();
 
   if (existing) {
@@ -142,7 +155,7 @@ async function upsertUser(
   }
 
   await supabase.from("users").insert({
-    email: user.email!,
+    email: emailLower,
     name: user.name ?? null,
     image: user.image ?? null,
     role: isSuperAdmin ? "super_admin" : inviteRole,
