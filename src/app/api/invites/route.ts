@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "Valid email is required" }, { status: 400 });
   }
-  const role = body.role === "super_admin" ? "super_admin" : "pm";
+  const inviteRole = body.role === "super_admin" ? "super_admin" : "pm";
 
   const supabase = createAdminClient();
 
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     .insert({
       token,
       email,
-      role,
+      role: inviteRole,
       created_by_user_id: userId,
       expires_at: expiresAt.toISOString(),
     })
