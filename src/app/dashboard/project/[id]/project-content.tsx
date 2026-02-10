@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ComponentProps } from "react";
 import { useRef, useState } from "react";
+import { ProjectContextSection } from "./project-context-section";
 import { ReportSection } from "./report-section";
 
 export function ProjectContent({
@@ -14,6 +15,7 @@ export function ProjectContent({
   reports,
   automations,
   openReportId,
+  driveConnected,
 }: {
   projectId: string;
   projectName: string;
@@ -23,6 +25,7 @@ export function ProjectContent({
   reports: ComponentProps<typeof ReportSection>["initialReports"];
   automations: ComponentProps<typeof ReportSection>["initialAutomations"];
   openReportId?: string;
+  driveConnected?: boolean;
 }) {
   const actionsRef = useRef<HTMLDivElement>(null);
   const [slotReady, setSlotReady] = useState(false);
@@ -49,6 +52,7 @@ export function ProjectContent({
       <p className="mt-1 text-sm text-neutral-700">
         Active automations: {automations.filter((a) => a.is_active).length}
       </p>
+      <ProjectContextSection projectId={projectId} jiraKeys={jiraKeys} driveConnected={driveConnected} />
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-neutral-200 bg-white p-4">
           <div className="flex items-start justify-between gap-2">

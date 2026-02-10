@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { DriveConnectForm } from "./drive-connect-form";
 import { HarvestConnectForm } from "./harvest-connect-form";
 import { JiraConnectForm } from "./jira-connect-form";
 
-export default async function SettingsPage() {
+type Props = { searchParams?: Promise<{ drive?: string }> };
+
+export default async function SettingsPage({ searchParams }: Props) {
   const session = await auth();
   const userId = (session?.user as { id?: string })?.id;
 
@@ -17,15 +20,19 @@ export default async function SettingsPage() {
         .not("access_token", "is", null)
     : { data: [] };
 
+  const params = searchParams ? await searchParams : {};
   const connectedProviders = new Set((integrations ?? []).map((r) => r.provider as string));
   const harvestConnected = connectedProviders.has("harvest");
   const jiraConnected = connectedProviders.has("jira");
+  // Show Drive as connected from DB or when returning from OAuth (?drive=connected)
+  const driveConnected =
+    connectedProviders.has("google_drive") || params.drive === "connected";
 
   return (
     <div>
       <h1 className="text-2xl font-semibold text-neutral-900">Settings</h1>
       <p className="mt-1 text-sm text-neutral-700">
-        Connect Harvest and Jira so you can link them to projects and use them in reports and context.
+        Connect Harvest, Jira, and Google Drive so you can link them to projects and use them in reports and context.
       </p>
 
       <div className="mt-8 space-y-8">
@@ -43,6 +50,14 @@ export default async function SettingsPage() {
             Used for project context and to show tickets in reports.
           </p>
           <JiraConnectForm className="mt-4" connected={jiraConnected} />
+        </section>
+
+        <section className="rounded-xl border border-neutral-200 bg-white p-6">
+          <h2 className="text-lg font-medium text-neutral-900">Google Drive</h2>
+          <p className="mt-1 text-sm text-neutral-700">
+            Used to add Meet Recordings (My Drive → Meet Recordings) to project context for summaries.
+          </p>
+          <DriveConnectForm className="mt-4" connected={driveConnected} />
         </section>
       </div>
 

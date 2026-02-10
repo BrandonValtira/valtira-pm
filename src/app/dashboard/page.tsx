@@ -53,9 +53,12 @@ export default async function DashboardPage() {
     );
   }
 
-  const connectedProviders = new Set((integrations ?? []).map((r) => r.provider));
+  const connectedProviders = new Set(
+    (integrations ?? []).map((r) => r.provider as string).filter(Boolean)
+  );
   const harvestConnected = connectedProviders.has("harvest");
   const jiraConnected = connectedProviders.has("jira");
+  const driveConnected = connectedProviders.has("google_drive");
 
   return (
     <div>
@@ -72,7 +75,7 @@ export default async function DashboardPage() {
                   height={16}
                   className="h-4 w-4 rounded"
                 />
-                Harvest
+                Harvest connected
               </span>
             ) : (
               <Link
@@ -92,7 +95,7 @@ export default async function DashboardPage() {
                   height={16}
                   className="h-4 w-4 rounded"
                 />
-                Jira
+                Jira connected
               </span>
             ) : (
               <Link
@@ -101,6 +104,32 @@ export default async function DashboardPage() {
               >
                 <span className="text-neutral-400" aria-hidden>○</span>
                 Sign in to Jira
+              </Link>
+            )}
+            {driveConnected ? (
+              <span className="flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-neutral-600">
+                <Image
+                  src="/integrations/google-drive.png"
+                  alt="Google Drive connected"
+                  width={16}
+                  height={16}
+                  className="h-4 w-4 rounded"
+                />
+                Google Drive connected
+              </span>
+            ) : (
+              <Link
+                href="/dashboard/settings"
+                className="flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-100 px-3 py-1.5 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-800"
+              >
+                <Image
+                  src="/integrations/google-drive.png"
+                  alt=""
+                  width={16}
+                  height={16}
+                  className="h-4 w-4 opacity-70"
+                />
+                Connect Google Drive
               </Link>
             )}
           </div>
