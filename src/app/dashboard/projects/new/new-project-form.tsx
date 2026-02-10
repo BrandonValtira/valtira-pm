@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 type HarvestProject = { id: number; name: string; code: string | null; is_active?: boolean; client: { name: string } };
-type JiraProject = { key: string; name: string; id: string };
 
 export function NewProjectForm({ className }: { className?: string }) {
   const router = useRouter();
@@ -12,8 +11,6 @@ export function NewProjectForm({ className }: { className?: string }) {
   const [harvestProjects, setHarvestProjects] = useState<HarvestProject[]>([]);
   const [selectedHarvestIds, setSelectedHarvestIds] = useState<number[]>([]);
   const [clientEmails, setClientEmails] = useState<string[]>([""]);
-  const [jiraProjects, setJiraProjects] = useState<JiraProject[]>([]);
-  const [selectedJiraKeys, setSelectedJiraKeys] = useState<string[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState("");
 
@@ -23,17 +20,6 @@ export function NewProjectForm({ className }: { className?: string }) {
       .then((res) => res.json())
       .then((data) => {
         if (!cancelled && data.projects) setHarvestProjects(data.projects);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/integrations/jira/projects")
-      .then((res) => res.json())
-      .then((data) => {
-        if (!cancelled && data.projects) setJiraProjects(data.projects);
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -59,12 +45,6 @@ export function NewProjectForm({ className }: { className?: string }) {
     );
   }
 
-  function toggleJira(key: string) {
-    setSelectedJiraKeys((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-    );
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -78,7 +58,6 @@ export function NewProjectForm({ className }: { className?: string }) {
           name: name.trim(),
           harvestProjectIds: selectedHarvestIds,
           clientEmails: emails,
-          jiraProjectKeys: selectedJiraKeys,
         }),
       });
       const data = await res.json().catch(() => ({}));
