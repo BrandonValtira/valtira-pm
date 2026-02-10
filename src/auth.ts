@@ -65,29 +65,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return true;
     },
     async session({ session }) {
-      if (session.user) {
-        const supabase = createAdminClient();
-        const email = session.user.email?.trim().toLowerCase();
-        const emailRaw = session.user.email?.trim();
-        if (!email && !emailRaw) return session;
-        let { data: dbUser } = await supabase
-          .from("users")
-          .select("id, role, status")
-          .eq("email", email ?? emailRaw!)
-          .single();
-        if (!dbUser && emailRaw && emailRaw !== email) {
-          const { data: fallback } = await supabase
-            .from("users")
-            .select("id, role, status")
-            .eq("email", emailRaw)
-            .single();
-          dbUser = fallback;
+      if (!session.user) return session;
+      const supabase = createAdminClient();
+      const email = session.user.email?.trim().toLowerCase();
+      const emailRaw = session.user.email?.trim();
+      if (!email && !emailRaw) return session;
+
+      let dbUser = await findUserByEmail(supabase, email ?? emailRaw!, emailRaw);
+      if (!dbUser) {
+        // Self-heal: user has OAuth session but no row in our DB (e.g. upsert failed at signIn)
+        try {
+          await upsertUser(supabase, {
+            email: session.user.email ?? undefined,
+            name: session.user.name ?? null,
+            image: session.user.image ?? null,
+          });
+          dbUser = await findUserByEmail(supabase, email ?? emailRaw!, emailRaw);
+        } catch {
+          // ignore
         }
-        if (dbUser) {
-          session.user.id = dbUser.id;
-          session.user.role = dbUser.role as "super_admin" | "pm";
-          session.user.status = dbUser.status as "invited" | "active";
-        }
+      }
+      if (dbUser) {
+        session.user.id = dbUser.id;
+        session.user.role = dbUser.role as "super_admin" | "pm";
+        session.user.status = dbUser.status as "invited" | "active";
       }
       return session;
     },
@@ -101,6 +102,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     error: "/auth/error",
   },
 });
+
+async function findUserByEmail(
+  supabase: ReturnType<typeof createAdminClient>,
+  emailLower: string,
+  emailRaw: string | undefined
+): Promise<{ id: string; role: string; status: string } | null> {
+  let { data } = await supabase
+    .from("users")
+    .select("id, role, status")
+    .eq("email", emailLower)
+    .single();
+  if (!data && emailRaw && emailRaw !== emailLower) {
+    const res = await supabase
+      .from("users")
+      .select("id, role, status")
+      .eq("email", emailRaw)
+      .single();
+    data = res.data;
+  }
+  return data;
+}
 
 async function upsertUser(
   supabase: ReturnType<typeof createAdminClient>,
