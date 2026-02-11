@@ -32,7 +32,7 @@ export default async function SettingsPage({ searchParams }: Props) {
     <div>
       <h1 className="text-2xl font-semibold text-neutral-900">Settings</h1>
       <p className="mt-1 text-sm text-neutral-700">
-        Connect Harvest, Jira, and Google Drive so you can link them to projects and use them in reports and context.
+        Connect Harvest, Jira, and Google so you can link them to projects and use them in reports and context.
       </p>
 
       <div className="mt-8 space-y-8">
@@ -53,9 +53,9 @@ export default async function SettingsPage({ searchParams }: Props) {
         </section>
 
         <section className="rounded-xl border border-neutral-200 bg-white p-6">
-          <h2 className="text-lg font-medium text-neutral-900">Google Drive</h2>
+          <h2 className="text-lg font-medium text-neutral-900">Google</h2>
           <p className="mt-1 text-sm text-neutral-700">
-            Used to add Meet Recordings (My Drive → Meet Recordings) to project context for summaries.
+            We use Drive for meeting transcripts (Meet Recordings) in project context and Gmail for sending reports.
           </p>
           <DriveConnectForm className="mt-4" connected={driveConnected} />
         </section>

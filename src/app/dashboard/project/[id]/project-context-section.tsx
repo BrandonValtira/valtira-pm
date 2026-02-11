@@ -356,7 +356,7 @@ export function ProjectContextSection({
             <div className="border-t border-neutral-200 px-4 pb-4 pt-2">
               {!driveConnected ? (
                 <p className="text-sm text-neutral-500">
-                  <a href="/dashboard/settings" className="text-neutral-700 underline">Connect Google Drive</a> in Settings to list transcripts.
+                  <a href="/dashboard/settings" className="text-neutral-700 underline">Connect Google</a> in Settings to list transcripts.
                 </p>
               ) : meetRecordingsLoading ? (
                 <p className="text-sm text-neutral-500">Loading…</p>

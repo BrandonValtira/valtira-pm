@@ -65,7 +65,7 @@ export function UserMenu({ user }: { user: UserLike }) {
         onClick={() => setOpen((prev) => !prev)}
         className="flex items-center gap-2"
       >
-        <span className="text-sm text-neutral-600 truncate max-w-[140px]">
+        <span className="text-sm text-neutral-900 truncate max-w-[140px]">
           {displayName}
         </span>
         {user.image ? (

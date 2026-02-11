@@ -68,14 +68,17 @@ export default async function DashboardPage() {
           <div className="flex items-center gap-3 text-sm">
             {harvestConnected ? (
               <span className="flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-neutral-600">
+                <svg className="h-4 w-4 shrink-0 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
                 <Image
                   src="/integrations/harvest.png"
-                  alt="Harvest connected"
+                  alt="Harvest"
                   width={16}
                   height={16}
-                  className="h-4 w-4 rounded"
+                  className="h-4 w-4 shrink-0 rounded"
                 />
-                Harvest connected
+                Harvest
               </span>
             ) : (
               <Link
@@ -88,14 +91,17 @@ export default async function DashboardPage() {
             )}
             {jiraConnected ? (
               <span className="flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-neutral-600">
+                <svg className="h-4 w-4 shrink-0 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
                 <Image
                   src="/integrations/jira.png"
-                  alt="Jira connected"
+                  alt="Jira"
                   width={16}
                   height={16}
-                  className="h-4 w-4 rounded"
+                  className="h-4 w-4 shrink-0 rounded"
                 />
-                Jira connected
+                Jira
               </span>
             ) : (
               <Link
@@ -108,14 +114,17 @@ export default async function DashboardPage() {
             )}
             {driveConnected ? (
               <span className="flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-neutral-600">
+                <svg className="h-4 w-4 shrink-0 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
                 <Image
-                  src="/integrations/google-drive.png"
-                  alt="Google Drive connected"
+                  src="/integrations/google.png"
+                  alt="Google"
                   width={16}
                   height={16}
-                  className="h-4 w-4 rounded"
+                  className="h-4 w-4 shrink-0 rounded"
                 />
-                Google Drive connected
+                Google
               </span>
             ) : (
               <Link
@@ -123,13 +132,13 @@ export default async function DashboardPage() {
                 className="flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-100 px-3 py-1.5 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-800"
               >
                 <Image
-                  src="/integrations/google-drive.png"
+                  src="/integrations/google.png"
                   alt=""
                   width={16}
                   height={16}
                   className="h-4 w-4 opacity-70"
                 />
-                Connect Google Drive
+                Connect Google
               </Link>
             )}
           </div>

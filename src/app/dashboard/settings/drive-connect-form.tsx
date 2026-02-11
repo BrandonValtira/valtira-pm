@@ -40,25 +40,25 @@ export function DriveConnectForm({
           className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
           <Image
-            src="/integrations/google-drive.png"
-            alt="Google Drive"
+            src="/integrations/google.png"
+            alt="Google"
             width={20}
             height={20}
             className="h-5 w-5 rounded"
           />
-          Sign in with Google Drive
+          Sign in with Google
         </a>
       ) : (
         <div className="flex flex-wrap items-center gap-3">
           <span className="inline-flex items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-sm text-green-700">
             <Image
-              src="/integrations/google-drive.png"
-              alt="Google Drive connected"
+              src="/integrations/google.png"
+              alt="Google connected"
               width={16}
               height={16}
               className="h-4 w-4 rounded"
             />
-            Google Drive connected
+            Google connected
           </span>
           <button
             type="button"
@@ -72,12 +72,12 @@ export function DriveConnectForm({
       )}
       {drive === "connected" && (
         <p className="mt-2 text-sm text-green-600">
-          Google Drive connected. You can add Meet Recordings (My Drive → Meet Recordings) in Project Context on any project.
+          Google connected. We use Drive for meeting transcripts in Project Context and Gmail for sending reports.
         </p>
       )}
       {error?.startsWith("drive_") && (
         <p className="mt-2 text-sm text-red-600">
-          {error === "drive_not_configured" && "Google Drive uses your app’s Google OAuth client. Ensure AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET are set."}
+          {error === "drive_not_configured" && "Google uses your app’s Google OAuth client. Ensure AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET are set."}
           {error === "drive_callback_failed" && "Connection was cancelled or failed. Try again."}
           {error === "drive_token" && "Could not get access. Try again."}
           {!["drive_not_configured", "drive_callback_failed", "drive_token"].includes(error) && "Something went wrong. Try again."}
