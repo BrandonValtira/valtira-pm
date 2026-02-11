@@ -1,10 +1,8 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendEmailViaGmail } from "@/lib/gmail-send";
 import { generateReportPdf } from "@/lib/report-pdf";
-import { Resend } from "resend";
 import { NextResponse } from "next/server";
-
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 function formatDate(d: string): string {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -63,19 +61,15 @@ export async function POST(
     }
   }
 
-  if (!resend) {
-    return NextResponse.json(
-      { error: "Email is not configured. Set RESEND_API_KEY in environment." },
-      { status: 503 }
-    );
-  }
-
   const periodLabel =
     report.period_type === "month"
       ? `${new Date(report.period_start).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
       : `Week of ${formatDate(report.period_start)} – ${formatDate(report.period_end)}`;
   const subject = `Report: ${project.name} – ${periodLabel}`;
-  const from = process.env.RESEND_FROM ?? "Valtira PM <onboarding@resend.dev>";
+  const html = `
+    <p>Please find attached the project report for <strong>${project.name}</strong> (${periodLabel}).</p>
+    <p>If you have any questions, reply to this email.</p>
+  `;
 
   try {
     const pdfArrayBuffer = generateReportPdf({
@@ -87,20 +81,17 @@ export async function POST(
     const pdfBytes = Buffer.from(pdfArrayBuffer);
     const fileName = `report-${project.name.replace(/[^a-z0-9]/gi, "-")}-${report.period_start}.pdf`;
 
-    const { data: emailData, error: emailError } = await resend.emails.send({
-      from,
+    const { error: emailError } = await sendEmailViaGmail(project.owner_user_id, {
       to: toAddresses,
-      ...(ccAddresses.length > 0 ? { cc: ccAddresses } : {}),
+      cc: ccAddresses.length > 0 ? ccAddresses : undefined,
       subject,
-      html: `
-        <p>Please find attached the project report for <strong>${project.name}</strong> (${periodLabel}).</p>
-        <p>If you have any questions, reply to this email.</p>
-      `,
+      html,
       attachments: [{ filename: fileName, content: pdfBytes }],
     });
 
     if (emailError) {
-      return NextResponse.json({ error: emailError.message }, { status: 502 });
+      const status = emailError.includes("Connect Google") ? 400 : 502;
+      return NextResponse.json({ error: emailError }, { status });
     }
 
     const now = new Date().toISOString();
@@ -118,7 +109,6 @@ export async function POST(
 
     return NextResponse.json({
       ok: true,
-      messageId: emailData?.id,
       sentTo: toAddresses,
     });
   } catch (e) {

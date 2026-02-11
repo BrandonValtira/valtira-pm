@@ -173,11 +173,15 @@ export async function generateProjectSummary(
     return "Add Jira boards (project settings), Google Meet recordings, or PDFs (meeting notes, SOWs) in the panels on the right, then generate a summary to see project mood, budget status, and next steps.";
   }
 
-  if (!apiKey) {
+  if (!apiKey?.trim()) {
+    // Log only presence (not value) so Vercel logs can confirm env is set
+    if (process.env.NODE_ENV === "production") {
+      console.warn("[Gemini] GEMINI_API_KEY missing or empty in Production. Add it in Vercel → Settings → Environment Variables, enable Production, then redeploy.");
+    }
     return [
       "Project: " + project.name,
       "",
-      "Context gathered (Gemini API key not set; summary is placeholder):",
+      "Context gathered (Gemini API key not set; summary is placeholder). In Vercel: set GEMINI_API_KEY in Settings → Environment Variables for Production and redeploy, then regenerate.",
       ...contextParts,
       "",
       "Budget status: See Harvest budget section above if available.",
