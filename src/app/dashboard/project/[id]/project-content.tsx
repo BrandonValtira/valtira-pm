@@ -52,7 +52,6 @@ export function ProjectContent({
       <p className="mt-1 text-sm text-neutral-700">
         Active automations: {automations.filter((a) => a.is_active).length}
       </p>
-      <ProjectContextSection projectId={projectId} jiraKeys={jiraKeys} driveConnected={driveConnected} />
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-neutral-200 bg-white p-4">
           <div className="flex items-start justify-between gap-2">
@@ -115,6 +114,7 @@ export function ProjectContent({
         actionsContainerRef={actionsRef}
         actionsSlotReady={slotReady}
       />
+      <ProjectContextSection projectId={projectId} jiraKeys={jiraKeys} driveConnected={driveConnected} />
     </div>
   );
 }

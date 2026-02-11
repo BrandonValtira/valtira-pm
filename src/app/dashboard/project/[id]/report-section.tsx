@@ -802,6 +802,7 @@ export function ReportSection({
             <div className="mt-6 border-t border-neutral-200 pt-4">
               <h4 className="text-sm font-medium text-neutral-700">Send to</h4>
               <p className="mt-1 text-xs text-neutral-600">Send this report to one or more people by email.</p>
+              {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
               <div className="mt-2 space-y-2">
                 {sendToEmails.map((email, i) => (
                   <div key={i} className="flex gap-2">
