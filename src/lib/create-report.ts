@@ -1,17 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getHarvestProjects, getHarvestTimeEntries, getHarvestProjectBudgetReport, type HarvestProject, type HarvestProjectBudgetResult, type HarvestTimeEntry } from "@/lib/harvest";
 import { getHarvestAccess } from "@/lib/harvest-auth";
-
-function getLastWeekBounds(): { start: string; end: string } {
-  const now = new Date();
-  const day = now.getDay();
-  const diff = day === 0 ? 7 : day;
-  const lastMonday = new Date(now);
-  lastMonday.setDate(now.getDate() - diff - 6);
-  const lastSunday = new Date(lastMonday);
-  lastSunday.setDate(lastMonday.getDate() + 6);
-  return { start: lastMonday.toISOString().slice(0, 10), end: lastSunday.toISOString().slice(0, 10) };
-}
+import { getHarvestWeekBounds } from "@/lib/report-week";
 
 function getLastMonthBounds(): { start: string; end: string } {
   const now = new Date();
@@ -109,7 +99,7 @@ export async function createReport(
     start = b.start;
     end = b.end;
   } else {
-    const b = getLastWeekBounds();
+    const b = getHarvestWeekBounds();
     start = b.start;
     end = b.end;
   }
@@ -128,6 +118,44 @@ export async function createReport(
   const { data: report, error } = await supabase.from("reports").insert(insert).select("id, period_type, period_start, period_end, status, created_at, harvest_data_snapshot").single();
   if (error) throw new Error(error.message);
   return report as { id: string; period_type: string; period_start: string; period_end: string; status: string; created_at: string; harvest_data_snapshot: unknown };
+}
+
+/**
+ * Create a report with status pending_approval and a placeholder snapshot (e.g. when Harvest fails).
+ * Approval flow and email still run; user can open the report and regenerate once Harvest is connected.
+ */
+export async function createPlaceholderReport(
+  projectId: string,
+  ownerUserId: string,
+  periodType: "week" | "month",
+  errorMessage: string
+): Promise<{ id: string; period_type: string; period_start: string; period_end: string; status: string; created_at: string }> {
+  const supabase = createAdminClient();
+  const { data: project } = await supabase.from("projects").select("id").eq("id", projectId).single();
+  if (!project) throw new Error("Project not found");
+  const { start, end } = periodType === "month" ? getLastMonthBounds() : getHarvestWeekBounds();
+  const now = new Date().toISOString();
+  const insert = {
+    project_id: projectId,
+    period_type: periodType,
+    period_start: start,
+    period_end: end,
+    status: "pending_approval",
+    approval_requested_at: now,
+    harvest_data_snapshot: {
+      _placeholder: true,
+      _error: errorMessage,
+      fetchedAt: now,
+    },
+    updated_at: now,
+  };
+  const { data: report, error } = await supabase
+    .from("reports")
+    .insert(insert)
+    .select("id, period_type, period_start, period_end, status, created_at")
+    .single();
+  if (error) throw new Error(error.message);
+  return report as { id: string; period_type: string; period_start: string; period_end: string; status: string; created_at: string };
 }
 
 /** Re-fetch Harvest data and update an existing report (e.g. after reject). Sets status=draft, cleared rejected_at. */

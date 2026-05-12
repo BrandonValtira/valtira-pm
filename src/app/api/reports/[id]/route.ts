@@ -71,3 +71,39 @@ export async function GET(
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(report);
 }
+
+const DELETABLE_STATUSES = ["draft", "pending_approval", "rejected"];
+
+/** Delete a report that has not been sent. Caller must be project owner. */
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await auth();
+  const userId = (session?.user as { id?: string })?.id;
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { id: reportId } = await params;
+  const supabase = createAdminClient();
+  const { data: report } = await supabase
+    .from("reports")
+    .select("id, project_id, status")
+    .eq("id", reportId)
+    .single();
+  if (!report) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("id", report.project_id)
+    .eq("owner_user_id", userId)
+    .single();
+  if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!DELETABLE_STATUSES.includes(report.status as string)) {
+    return NextResponse.json(
+      { error: "Only draft, pending approval, or rejected reports can be deleted." },
+      { status: 400 }
+    );
+  }
+  const { error } = await supabase.from("reports").delete().eq("id", reportId);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ deleted: true });
+}

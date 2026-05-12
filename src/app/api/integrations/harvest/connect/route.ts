@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { getAppBaseUrl } from "@/lib/app-url";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
@@ -15,8 +16,8 @@ export async function GET(req: Request) {
       new URL("/dashboard/settings?error=harvest_not_configured", req.url)
     );
   }
-  const origin = new URL(req.url).origin;
-  const redirectUri = `${origin}/api/auth/callback/harvest`;
+  const baseUrl = getAppBaseUrl();
+  const redirectUri = `${baseUrl}/api/auth/callback/harvest`;
   const state = crypto.randomUUID() + "-" + crypto.randomUUID().replace(/-/g, "");
   const cookieStore = await cookies();
   cookieStore.set("oauth_state_harvest", state, {

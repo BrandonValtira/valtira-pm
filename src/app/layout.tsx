@@ -13,6 +13,18 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: "Valtira PM",
   description: "Project management and client reporting",
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/icon-32.png", sizes: "32x32", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
+  },
+  appleWebApp: {
+    capable: true,
+    title: "Valtira PM",
+    statusBarStyle: "default",
+  },
 };
 
 export default function RootLayout({

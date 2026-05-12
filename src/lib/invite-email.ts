@@ -69,3 +69,24 @@ export async function sendReportReminderEmail(
   });
   return error ? { error: error.message } : {};
 }
+
+/** Send report to client (with optional PDF attachment). Same Resend templates/config as approval/reminder. */
+export async function sendReportToClientEmail(
+  to: string[],
+  cc: string[],
+  subject: string,
+  html: string,
+  attachments?: { filename: string; content: Buffer }[]
+): Promise<{ error?: string }> {
+  if (!resend || to.length === 0) return { error: "Email not configured or no recipients" };
+  const from = process.env.RESEND_FROM ?? "Valtira PM <onboarding@resend.dev>";
+  const { error } = await resend.emails.send({
+    from,
+    to,
+    cc: cc.length > 0 ? cc : undefined,
+    subject,
+    html,
+    attachments: attachments?.map((a) => ({ filename: a.filename, content: a.content })),
+  });
+  return error ? { error: error.message } : {};
+}

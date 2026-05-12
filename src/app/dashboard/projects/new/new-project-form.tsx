@@ -99,7 +99,7 @@ export function NewProjectForm({ className }: { className?: string }) {
           {harvestProjects.length === 0 ? (
             <p className="mt-1 text-sm text-neutral-700">
               Connect Harvest in{" "}
-              <a href="/dashboard/settings" className="text-neutral-700 underline">
+              <a href="/dashboard" className="text-neutral-700 underline">
                 Settings
               </a>{" "}
               to select projects.
@@ -109,8 +109,8 @@ export function NewProjectForm({ className }: { className?: string }) {
               {harvestProjects
                 .filter((p) => p.is_active !== false)
                 .sort((a, b) => {
-                  const clientA = a.client?.name ?? "";
-                  const clientB = b.client?.name ?? "";
+                  const clientA = (a.client?.name ?? "\uFFFF").toLowerCase();
+                  const clientB = (b.client?.name ?? "\uFFFF").toLowerCase();
                   const cmp = clientA.localeCompare(clientB, undefined, { sensitivity: "base" });
                   return cmp !== 0 ? cmp : a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
                 })
@@ -124,10 +124,9 @@ export function NewProjectForm({ className }: { className?: string }) {
                       className="h-4 w-4 rounded border-neutral-300"
                     />
                     <label htmlFor={`harvest-${p.id}`} className="text-sm">
-                      {p.name}
-                      {p.client?.name && (
-                        <span className="ml-1 text-neutral-700">({p.client.name})</span>
-                      )}
+                      {p.client?.name && <span className="text-neutral-600">{p.client.name}</span>}
+                      {p.client?.name && <span className="text-neutral-400"> · </span>}
+                      <span className={p.client?.name ? "text-neutral-700" : ""}>{p.name}</span>
                     </label>
                   </li>
                 ))}

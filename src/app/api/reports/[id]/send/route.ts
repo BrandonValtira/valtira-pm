@@ -1,15 +1,12 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmailViaGmail } from "@/lib/gmail-send";
-import { generateReportPdf } from "@/lib/report-pdf";
+import { generateReportHtml } from "@/lib/report-pdf";
+import { formatDateOnly } from "@/lib/report-week";
 import { NextResponse } from "next/server";
 
-function formatDate(d: string): string {
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
 /**
- * Send report by email (PDF attachment) to the given addresses.
+ * Send report by email (content in body, same as weekly). No PDF attachment.
  * Caller must be the project owner. Report can be draft or approved.
  */
 export async function POST(
@@ -47,46 +44,41 @@ export async function POST(
 
   const toSet = new Set(toAddresses);
   const ccAddresses: string[] = [];
-  const [ownerUser, superAdmins] = await Promise.all([
-    supabase.from("users").select("email").eq("id", project.owner_user_id).single(),
-    supabase.from("users").select("email").eq("role", "super_admin").not("email", "is", null),
-  ]);
-  for (const row of [ownerUser.data, ...(superAdmins.data ?? [])]) {
-    if (row?.email) {
-      const e = (row as { email: string }).email.trim().toLowerCase();
-      if (e && !toSet.has(e)) {
-        ccAddresses.push(e);
-        toSet.add(e);
-      }
+  const { data: ownerUser } = await supabase.from("users").select("email").eq("id", project.owner_user_id).single();
+  if (ownerUser?.email) {
+    const e = ownerUser.email.trim().toLowerCase();
+    if (e && !toSet.has(e)) {
+      ccAddresses.push(e);
+      toSet.add(e);
     }
   }
 
+  const startDateStr = String(report.period_start).slice(0, 10);
+  const endDateStr = String(report.period_end).slice(0, 10);
+  const [y, m] = startDateStr.split("-").map(Number);
   const periodLabel =
     report.period_type === "month"
-      ? `${new Date(report.period_start).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
-      : `Week of ${formatDate(report.period_start)} – ${formatDate(report.period_end)}`;
+      ? new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+      : `Week of ${formatDateOnly(startDateStr)} – ${formatDateOnly(endDateStr)}`;
   const subject = `Report: ${project.name} – ${periodLabel}`;
+  const reportBodyHtml = generateReportHtml({
+    period_type: report.period_type,
+    period_start: report.period_start,
+    period_end: report.period_end,
+    harvest_data_snapshot: report.harvest_data_snapshot,
+  });
   const html = `
-    <p>Please find attached the project report for <strong>${project.name}</strong> (${periodLabel}).</p>
-    <p>If you have any questions, reply to this email.</p>
+    <p>Please find below the project report for <strong>${project.name}</strong> (${periodLabel}).</p>
+    ${reportBodyHtml}
+    <p style="margin-top:16px;">If you have any questions, reply to this email.</p>
   `;
 
   try {
-    const pdfArrayBuffer = generateReportPdf({
-      period_type: report.period_type,
-      period_start: report.period_start,
-      period_end: report.period_end,
-      harvest_data_snapshot: report.harvest_data_snapshot,
-    });
-    const pdfBytes = Buffer.from(pdfArrayBuffer);
-    const fileName = `report-${project.name.replace(/[^a-z0-9]/gi, "-")}-${report.period_start}.pdf`;
-
     const { error: emailError } = await sendEmailViaGmail(project.owner_user_id, {
       to: toAddresses,
       cc: ccAddresses.length > 0 ? ccAddresses : undefined,
       subject,
       html,
-      attachments: [{ filename: fileName, content: pdfBytes }],
     });
 
     if (emailError) {

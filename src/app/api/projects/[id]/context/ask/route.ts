@@ -48,7 +48,7 @@ export async function POST(
     );
   }
 
-  const contextParts = await buildProjectContext(supabase, projectId, project, userId);
+  const { contextParts } = await buildProjectContext(supabase, projectId, project, userId);
   if (contextParts.length === 0) {
     return NextResponse.json({
       answer: "Add Jira boards, meeting recordings, or PDFs on the right to build context, then ask again.",

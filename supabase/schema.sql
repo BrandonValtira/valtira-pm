@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT,
   image TEXT,
   role TEXT NOT NULL DEFAULT 'pm' CHECK (role IN ('super_admin', 'pm')),
-  status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('invited', 'active')),
+  status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('invited', 'active', 'revoked')),
   invited_at TIMESTAMPTZ,
   invited_by_user_id UUID REFERENCES users(id),
   accepted_at TIMESTAMPTZ,
@@ -150,3 +150,31 @@ CREATE POLICY "report_history_all" ON report_history FOR ALL USING (true);
 CREATE POLICY "report_automations_all" ON report_automations FOR ALL USING (true);
 CREATE POLICY "project_files_all" ON project_files FOR ALL USING (true);
 CREATE POLICY "invites_all" ON invites FOR ALL USING (true);
+
+-- Resource planning: allocations per (resource name, role, project, week)
+CREATE TABLE IF NOT EXISTS resource_planning_allocations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  resource_name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  project_name TEXT NOT NULL,
+  week_start DATE NOT NULL,
+  fte DECIMAL(5,4) NOT NULL DEFAULT 0 CHECK (fte >= 0 AND fte <= 1),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(resource_name, role, project_name, week_start)
+);
+CREATE INDEX IF NOT EXISTS idx_rp_allocations_resource_week ON resource_planning_allocations(resource_name, week_start);
+CREATE INDEX IF NOT EXISTS idx_rp_allocations_week ON resource_planning_allocations(week_start);
+ALTER TABLE resource_planning_allocations ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "resource_planning_allocations_all" ON resource_planning_allocations FOR ALL USING (true);
+
+-- Project metadata: display title and Harvest associations
+CREATE TABLE IF NOT EXISTS resource_planning_projects (
+  project_name TEXT PRIMARY KEY,
+  display_title TEXT,
+  harvest_project_ids INTEGER[] NOT NULL DEFAULT '{}',
+  harvest_project_names TEXT[] NOT NULL DEFAULT '{}',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE resource_planning_projects ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "resource_planning_projects_all" ON resource_planning_projects FOR ALL USING (true);

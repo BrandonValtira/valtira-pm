@@ -8,7 +8,7 @@ export default function NewProjectPage() {
         href="/dashboard"
         className="text-sm text-neutral-700 hover:text-neutral-900"
       >
-        ← Back to projects
+        ← Back to dashboard
       </Link>
       <h1 className="mt-4 text-2xl font-semibold text-neutral-900">
         Add project

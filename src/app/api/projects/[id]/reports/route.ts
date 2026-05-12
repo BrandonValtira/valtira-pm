@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getHarvestProjects, getHarvestTimeEntries, getHarvestProjectBudgetReport } from "@/lib/harvest";
 import { getHarvestAccess } from "@/lib/harvest-auth";
+import { getHarvestWeekBounds } from "@/lib/report-week";
 import { NextResponse } from "next/server";
 
 async function getProjectAndCheckOwner(
@@ -16,20 +17,6 @@ async function getProjectAndCheckOwner(
     .eq("owner_user_id", userId)
     .single();
   return data;
-}
-
-function getLastWeekBounds(): { start: string; end: string } {
-  const now = new Date();
-  const day = now.getDay();
-  const diff = day === 0 ? 7 : day;
-  const lastMonday = new Date(now);
-  lastMonday.setDate(now.getDate() - diff - 6);
-  const lastSunday = new Date(lastMonday);
-  lastSunday.setDate(lastMonday.getDate() + 6);
-  return {
-    start: lastMonday.toISOString().slice(0, 10),
-    end: lastSunday.toISOString().slice(0, 10),
-  };
 }
 
 function getLastMonthBounds(): { start: string; end: string } {
@@ -96,7 +83,7 @@ export async function POST(
     periodStart = b.start;
     periodEnd = b.end;
   } else {
-    const b = getLastWeekBounds();
+    const b = getHarvestWeekBounds();
     periodStart = b.start;
     periodEnd = b.end;
   }

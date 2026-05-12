@@ -1,71 +1,15 @@
-import Link from "next/link";
-import { auth } from "@/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { DriveConnectForm } from "./drive-connect-form";
-import { HarvestConnectForm } from "./harvest-connect-form";
-import { JiraConnectForm } from "./jira-connect-form";
+import { redirect } from "next/navigation";
 
-type Props = { searchParams?: Promise<{ drive?: string }> };
+type Props = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
+/** Settings is now on the dashboard (Accounts). Redirect so old links and OAuth callbacks still work. */
 export default async function SettingsPage({ searchParams }: Props) {
-  const session = await auth();
-  const userId = (session?.user as { id?: string })?.id;
-
-  const supabase = createAdminClient();
-  const { data: integrations } = userId
-    ? await supabase
-        .from("user_integrations")
-        .select("provider")
-        .eq("user_id", userId)
-        .not("access_token", "is", null)
-    : { data: [] };
-
   const params = searchParams ? await searchParams : {};
-  const connectedProviders = new Set((integrations ?? []).map((r) => r.provider as string));
-  const harvestConnected = connectedProviders.has("harvest");
-  const jiraConnected = connectedProviders.has("jira");
-  // Show Drive as connected from DB or when returning from OAuth (?drive=connected)
-  const driveConnected =
-    connectedProviders.has("google_drive") || params.drive === "connected";
-
-  return (
-    <div>
-      <h1 className="text-2xl font-semibold text-neutral-900">Settings</h1>
-      <p className="mt-1 text-sm text-neutral-700">
-        Connect Harvest, Jira, and Google so you can link them to projects and use them in reports and context.
-      </p>
-
-      <div className="mt-8 space-y-8">
-        <section className="rounded-xl border border-neutral-200 bg-white p-6">
-          <h2 className="text-lg font-medium text-neutral-900">Harvest</h2>
-          <p className="mt-1 text-sm text-neutral-700">
-            Used to pull projects and time entries for reports.
-          </p>
-          <HarvestConnectForm className="mt-4" connected={harvestConnected} />
-        </section>
-
-        <section className="rounded-xl border border-neutral-200 bg-white p-6">
-          <h2 className="text-lg font-medium text-neutral-900">Jira</h2>
-          <p className="mt-1 text-sm text-neutral-700">
-            Used for project context and to show tickets in reports.
-          </p>
-          <JiraConnectForm className="mt-4" connected={jiraConnected} />
-        </section>
-
-        <section className="rounded-xl border border-neutral-200 bg-white p-6">
-          <h2 className="text-lg font-medium text-neutral-900">Google</h2>
-          <p className="mt-1 text-sm text-neutral-700">
-            We use Drive for meeting transcripts (Meet Recordings) in project context and Gmail for sending reports.
-          </p>
-          <DriveConnectForm className="mt-4" connected={driveConnected} />
-        </section>
-      </div>
-
-      <p className="mt-8 text-sm text-neutral-700">
-        <Link href="/dashboard" className="text-neutral-700 hover:underline">
-          ← Back to projects
-        </Link>
-      </p>
-    </div>
-  );
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (typeof v === "string") search.set(k, v);
+    else if (Array.isArray(v) && v[0]) search.set(k, v[0]);
+  });
+  const qs = search.toString();
+  redirect(qs ? `/dashboard?${qs}` : "/dashboard");
 }

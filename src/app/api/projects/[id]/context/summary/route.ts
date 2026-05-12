@@ -35,8 +35,8 @@ export async function POST(
   }
 
   try {
-    const summary = await generateProjectSummary(supabase, projectId, project, userId);
-    return NextResponse.json({ summary });
+    const { summary, jiraReturnedNothing } = await generateProjectSummary(supabase, projectId, project, userId);
+    return NextResponse.json({ summary, jiraReturnedNothing });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to generate summary";
     return NextResponse.json({ error: message }, { status: 500 });

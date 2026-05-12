@@ -36,6 +36,12 @@ body {
   background-color: #020617 !important;
 }
 
+/* Project summary regenerate overlay: dark in dark mode (not white blur) */
+.dark .summary-regenerate-overlay {
+  background-color: rgba(3, 7, 18, 0.88) !important;
+  backdrop-filter: blur(8px);
+}
+
 .dark .border-neutral-200,
 .dark .border-neutral-300 {
   border-color: #334155 !important;
@@ -87,6 +93,12 @@ body {
   fill: #ffffff;
 }
 
+/* Resource planning: keep text dark on light utilization backgrounds in dark mode */
+.dark .resource-planning-util-cell,
+.dark .resource-planning-util-cell * {
+  color: #171717 !important;
+}
+
 @layer base {
   input::placeholder,
   textarea::placeholder {
@@ -107,5 +119,17 @@ body {
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+}
+
+@keyframes regenerate-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(350%);
+  }
+  100% {
+    transform: translateX(-100%);
   }
 }

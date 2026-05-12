@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendInviteEmail } from "@/lib/invite-email";
+import { sendInviteEmailViaGmail } from "@/lib/gmail-send";
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 
@@ -10,8 +10,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
+  const userId = (session?.user as { id?: string })?.id;
   const role = (session?.user as { role?: string })?.role;
-  if (role !== "super_admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (role !== "super_admin" || !userId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await params;
   const supabase = createAdminClient();
@@ -39,7 +40,7 @@ export async function POST(
 
   if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
 
-  const sendResult = await sendInviteEmail(existing.email, token);
+  const sendResult = await sendInviteEmailViaGmail(userId, existing.email, token);
   if (sendResult.error) {
     return NextResponse.json({ error: sendResult.error }, { status: 502 });
   }

@@ -20,14 +20,17 @@ export function ProjectContextSection({
   projectId,
   jiraKeys,
   driveConnected = false,
+  jiraConnected = false,
 }: {
   projectId: string;
   jiraKeys: string[];
   driveConnected?: boolean;
+  jiraConnected?: boolean;
 }) {
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [openPanel, setOpenPanel] = useState<AccordionPanel | null>("materials");
   const [summary, setSummary] = useState<string | null>(null);
+  const [jiraReturnedNothing, setJiraReturnedNothing] = useState<boolean | null>(null);
   const [summaryStale, setSummaryStale] = useState(false);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(true);
@@ -115,6 +118,9 @@ export function ProjectContextSection({
           setMeetRecordingsError((data.error || "Could not load transcripts.") + detail);
           setMeetRecordingsFromDrive([]);
           setMeetRecordingsFolderName(data.folderName ?? null);
+          if (data.authExpired === true || res.status === 401) {
+            router.refresh();
+          }
           return;
         }
         if (Array.isArray(data.files)) setMeetRecordingsFromDrive(data.files);
@@ -180,10 +186,16 @@ export function ProjectContextSection({
     try {
       const res = await fetch(`/api/projects/${projectId}/context/summary`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && typeof data.summary === "string") setSummary(data.summary);
-      else setSummary(data.error || "Unable to generate summary. Add Jira, materials, or meeting recordings for context.");
+      if (res.ok && typeof data.summary === "string") {
+        setSummary(data.summary);
+        setJiraReturnedNothing(data.jiraReturnedNothing === true);
+      } else {
+        setSummary(data.error || "Unable to generate summary. Add Jira, materials, or meeting recordings for context.");
+        setJiraReturnedNothing(null);
+      }
     } catch {
       setSummary("Failed to generate summary.");
+      setJiraReturnedNothing(null);
     } finally {
       setLoadingSummary(false);
     }
@@ -214,9 +226,10 @@ export function ProjectContextSection({
     }
   }
 
-  const summaryBoxClass =
-    "relative mt-4 rounded-lg border border-neutral-200 bg-neutral-50/50 p-4" +
-    (summaryStale ? " opacity-90" : "");
+  const summaryBoxClass = "relative mt-4 rounded-lg border border-neutral-200 bg-neutral-50/50 p-4";
+  const showButtonOverlay = (hasContext && !summary) || (summaryStale && !!summary && !loadingSummary);
+  const showSpinnerOverlay = loadingSummary;
+  const overlayVisible = showButtonOverlay || showSpinnerOverlay;
 
   return (
     <section className="mt-8 rounded-xl border border-neutral-200 bg-white p-6">
@@ -224,56 +237,68 @@ export function ProjectContextSection({
         <div className="lg:col-span-2">
           <h2 className="text-lg font-medium text-neutral-900">Project Summary</h2>
           <div className={summaryBoxClass}>
-            {summaryStale && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-white/80 backdrop-blur-sm">
-                <div className="flex flex-col items-center gap-4">
-                  {loadingSummary && (
-                    <div className="h-10 w-10 shrink-0 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-900" aria-hidden />
-                  )}
-                  <button
-                    type="button"
-                    onClick={generateSummary}
-                    disabled={loadingSummary}
-                    className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
-                  >
-                    {loadingSummary ? "Regenerating…" : "Regenerate summary"}
-                  </button>
-                </div>
+            {/* Behind overlay: old summary (if any) or nothing */}
+            {overlayVisible ? (
+              <div className={`min-h-[200px] ${summary ? "flex flex-col max-h-[420px]" : ""}`}>
+                {summary ? (
+                  <div className="overflow-y-auto flex-1 min-h-0 pr-1">
+                    <FormattedSummary text={summary} />
+                  </div>
+                ) : (
+                  <div className="min-h-[200px]" aria-hidden />
+                )}
               </div>
-            )}
-            {!summary && (
-              <p className="mt-1 text-sm text-neutral-600">
-                One-time summary for prep before meetings. Add Jira boards, meeting recordings, or PDFs in Project Context, then generate.
-              </p>
-            )}
-            <div className={`mt-4 min-h-[200px] ${summary ? "flex flex-col max-h-[420px]" : ""}`}>
-            {!hasContext ? (
-              <p className="text-sm text-neutral-600">
-                Add Jira boards (in project settings or the Jira panel), Google Meet recordings, or PDFs (meeting notes, SOWs) to build context. Then generate a summary.
-              </p>
-            ) : summary ? (
-              <div className="overflow-y-auto flex-1 min-h-0 pr-1">
-                <FormattedSummary text={summary} />
-              </div>
-            ) : loadingSummary ? (
-              <div className="flex items-center gap-3 text-sm text-neutral-600">
-                <div className="h-6 w-6 shrink-0 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-900" aria-hidden />
-                <span>Generating summary…</span>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <p className="text-sm text-neutral-600">You have context. Generate a summary to see project mood, budget status, and next steps.</p>
+            ) : null}
+            {/* Blur + centered button: Generate summary (no summary yet) or Regenerate summary (stale) */}
+            {showButtonOverlay && (
+              <div className="summary-regenerate-overlay absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-white/80 backdrop-blur-sm">
                 <button
                   type="button"
                   onClick={generateSummary}
                   disabled={loadingSummary}
-                  className="self-start rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+                  className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
                 >
-                  Generate summary
+                  {summary ? "Regenerate summary" : "Generate summary"}
                 </button>
               </div>
             )}
-            </div>
+            {/* Loading: opaque overlay + spinner */}
+            {showSpinnerOverlay && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-white dark:bg-neutral-950" aria-live="polite">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-48 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+                    <div
+                      className="h-2 w-[40%] rounded-full bg-neutral-900/80 dark:bg-neutral-100"
+                      style={{ animation: "regenerate-progress 1.8s ease-in-out infinite" }}
+                    />
+                  </div>
+                  <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Regenerating summary…</span>
+                </div>
+              </div>
+            )}
+            {hasContext && (jiraReturnedNothing === true || (selectedJiraKeys.length > 0 && !!summary && /no jira data|no issues found for project/i.test(summary))) && (
+              <a
+                href={`/api/projects/${projectId}/context/jira-debug`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-xs text-neutral-500 hover:text-neutral-700 underline"
+              >
+                Jira not loading? Debug
+              </a>
+            )}
+            {!overlayVisible && (
+              <div className={`mt-4 min-h-[200px] ${summary ? "flex flex-col max-h-[420px]" : ""}`}>
+                {!hasContext ? (
+                  <p className="text-sm text-neutral-600">
+                    Add Jira boards (in project settings or the Jira panel), Google Meet recordings, or PDFs (meeting notes, SOWs) to build context. Then generate a summary.
+                  </p>
+                ) : (
+                  <div className="overflow-y-auto flex-1 min-h-0 pr-1">
+                    <FormattedSummary text={summary ?? ""} />
+                  </div>
+                )}
+              </div>
+            )}
             {hasContext && (
               <div className="mt-4 border-t border-neutral-200 pt-4 flex flex-col gap-2">
                 {(chatMessages.length > 0 || loadingAsk) && (
@@ -356,7 +381,7 @@ export function ProjectContextSection({
             <div className="border-t border-neutral-200 px-4 pb-4 pt-2">
               {!driveConnected ? (
                 <p className="text-sm text-neutral-500">
-                  <a href="/dashboard/settings" className="text-neutral-700 underline">Connect Google</a> in Settings to list transcripts.
+                  <a href="/dashboard" className="text-neutral-700 underline">Connect Google</a> on the dashboard to list transcripts.
                 </p>
               ) : meetRecordingsLoading ? (
                 <p className="text-sm text-neutral-500">Loading…</p>
@@ -507,7 +532,11 @@ export function ProjectContextSection({
                 <p className="mt-2 text-sm text-neutral-500">Loading boards…</p>
               ) : jiraProjects.length === 0 ? (
                 <p className="mt-2 text-sm text-neutral-500">
-                  Connect Jira in <a href="/dashboard/settings" className="text-neutral-700 underline">Settings</a> to select boards.
+                  {jiraConnected ? (
+                    <>Jira connection may be incomplete or expired. Reconnect on the <a href="/dashboard" className="text-neutral-700 underline">dashboard</a> to select boards.</>
+                  ) : (
+                    <>Connect Jira on the <a href="/dashboard" className="text-neutral-700 underline">dashboard</a> to select boards.</>
+                  )}
                 </p>
               ) : (
                 <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
@@ -538,16 +567,27 @@ export function ProjectContextSection({
   );
 }
 
+const SUMMARY_HEADERS = ["PROJECT MOOD", "GOOGLE TRANSCRIPTS", "ADDITIONAL MATERIALS", "JIRA", "NEXT STEPS"];
+const SUMMARY_TITLES: Record<string, string> = {
+  "PROJECT MOOD": "Project mood",
+  "GOOGLE TRANSCRIPTS": "Google transcripts",
+  "ADDITIONAL MATERIALS": "Additional Materials",
+  "JIRA": "Jira",
+  "NEXT STEPS": "Next steps",
+};
+
 function FormattedSummary({ text }: { text: string }) {
   const normalized = text.replace(/^\d+\)\s*/gm, "").trim();
   const sections: { key: string; title: string; body: string }[] = [];
-  const headers = ["PROJECT MOOD", "BUDGET STATUS", "SUMMARY", "NEXT STEPS"];
-  for (let i = 0; i < headers.length; i++) {
-    const esc = headers[i].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(`${esc}\\s*\\n([\\s\\S]*?)(?=${headers[i + 1] ? headers[i + 1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : "$"})`, "i");
+  for (let i = 0; i < SUMMARY_HEADERS.length; i++) {
+    const header = SUMMARY_HEADERS[i];
+    const nextHeader = SUMMARY_HEADERS[i + 1];
+    const esc = header.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const nextEsc = nextHeader ? nextHeader.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : "$";
+    const re = new RegExp(`${esc}\\s*\\n([\\s\\S]*?)(?=${nextEsc})`, "i");
     const m = normalized.match(re);
     const body = m ? m[1].replace(/^\s+/gm, "").trim() : "";
-    sections.push({ key: headers[i].replace(/\s+/g, "-").toLowerCase(), title: headers[i], body });
+    sections.push({ key: header.replace(/\s+/g, "-").toLowerCase(), title: SUMMARY_TITLES[header] ?? header, body });
   }
   const hasAnyBody = sections.some((s) => s.body.length > 0);
   if (!hasAnyBody) {
@@ -561,10 +601,10 @@ function FormattedSummary({ text }: { text: string }) {
     return "bg-neutral-200 text-neutral-700 border-neutral-300";
   };
   return (
-    <div className="space-y-4 text-sm text-neutral-800">
+    <div className="space-y-5 text-sm text-neutral-800">
       {sections.map((s) => (
         <div key={s.key}>
-          <p className="font-semibold text-neutral-900">{s.title}</p>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">{s.title}</h3>
           {s.key === "project-mood" && s.body ? (
             <span className={`mt-1 inline-flex rounded-md border px-2 py-0.5 text-sm font-medium ${moodColor(s.body)}`}>
               {s.body.replace(/\s*\(green\)|\(yellow\)|\(red\)|\(gray\)/gi, "").trim() || s.body}
@@ -576,7 +616,7 @@ function FormattedSummary({ text }: { text: string }) {
               ))}
             </ul>
           ) : s.body ? (
-            <p className="mt-1 whitespace-pre-wrap">{s.body}</p>
+            <p className="mt-1 whitespace-pre-wrap leading-relaxed">{s.body}</p>
           ) : null}
         </div>
       ))}

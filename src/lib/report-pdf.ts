@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { formatDateOnly } from "@/lib/report-week";
 
 type TimeEntry = {
   id: number;
@@ -29,17 +30,13 @@ type ReportForPdf = {
   } | null;
 };
 
-function formatDate(d: string): string {
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
 function formatMonthRange(start: string, end: string): string {
-  const s = new Date(start);
-  const e = new Date(end);
-  if (s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear()) {
-    return s.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const [sy, sm] = start.slice(0, 10).split("-").map(Number);
+  const [ey, em] = end.slice(0, 10).split("-").map(Number);
+  if (sy === ey && sm === em) {
+    return new Date(sy, sm - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }
-  return `${formatDate(start)} – ${formatDate(end)}`;
+  return `${formatDateOnly(start)} – ${formatDateOnly(end)}`;
 }
 
 function firstName(fullName: string): string {
@@ -85,7 +82,7 @@ export function generateReportPdf(report: ReportForPdf): ArrayBuffer {
   const periodLabel =
     report.period_type === "month"
       ? `Month: ${formatMonthRange(report.period_start, report.period_end)}`
-      : `Week: ${formatDate(report.period_start)} – ${formatDate(report.period_end)}`;
+      : `Week: ${formatDateOnly(report.period_start)} – ${formatDateOnly(report.period_end)}`;
   doc.text(periodLabel, margin, y);
   y += 24;
   doc.setTextColor(0, 0, 0);
@@ -151,4 +148,101 @@ export function generateReportPdf(report: ReportForPdf): ArrayBuffer {
   doc.text(`Total hours consumed: ${totalHours.toFixed(1)}`, margin, y + 4);
 
   return doc.output("arraybuffer") as ArrayBuffer;
+}
+
+/** Same report content as PDF, as HTML for email body (no attachment). */
+export function generateReportHtml(report: ReportForPdf): string {
+  const snapshot = report.harvest_data_snapshot;
+  const entries = snapshot?.timeEntries ?? [];
+  const totalHours = entries.reduce((s, e) => s + e.hours, 0);
+  const projectNames = snapshot?.harvestProjectNames ?? [];
+  const harvestProjects = snapshot?.harvestProjects ?? [];
+  const totalBudgetHours = harvestProjects.reduce((s, p) => s + (p.budget ?? 0), 0) || null;
+  const totalBudgetSpent = harvestProjects.reduce((s, p) => s + (p.budget_spent ?? 0), 0);
+  const totalBudgetRemaining = harvestProjects.reduce((s, p) => s + (p.budget_remaining ?? 0), 0);
+  const hasBudgetReport = harvestProjects.some((p) => p.budget_spent != null || p.budget_remaining != null);
+  const totalCostBudget = harvestProjects.reduce((s, p) => s + (p.cost_budget ?? 0), 0) || null;
+  const avgRate =
+    harvestProjects.length > 0
+      ? harvestProjects.reduce((s, p) => s + (p.hourly_rate ?? 0), 0) / harvestProjects.length
+      : 0;
+  const spentFundsEstimate = avgRate * totalHours;
+
+  const clientNames = Array.from(new Set(harvestProjects.map((p) => p.client_name).filter(Boolean))) as string[];
+  const clientLabel = clientNames.length > 0 ? clientNames.join(", ") : null;
+  const projectLabel = projectNames.length > 0 ? projectNames.join(", ") : "Harvest project";
+  const titleLine = [clientLabel, projectLabel].filter(Boolean).join(" · ");
+
+  const periodLabel =
+    report.period_type === "month"
+      ? `Month: ${formatMonthRange(report.period_start, report.period_end)}`
+      : `Week: ${formatDateOnly(report.period_start)} – ${formatDateOnly(report.period_end)}`;
+
+  let budgetHtml = "";
+  if (totalBudgetHours != null) {
+    if (hasBudgetReport) {
+      budgetHtml += `<p><strong>Hours:</strong> ${totalBudgetSpent.toFixed(1)} consumed, ${totalBudgetRemaining.toFixed(1)} left in budget</p>`;
+      budgetHtml += `<p><strong>Total budget:</strong> ${totalBudgetHours.toFixed(1)} hours</p>`;
+    } else {
+      const hoursLeft = Math.max(0, totalBudgetHours - totalHours);
+      budgetHtml += `<p><strong>Hours:</strong> ${hoursLeft.toFixed(1)} left out of ${totalBudgetHours.toFixed(1)} total</p>`;
+    }
+    budgetHtml += `<p><strong>Hours this period:</strong> ${totalHours.toFixed(1)}</p>`;
+  }
+  if (totalCostBudget != null && totalCostBudget > 0) {
+    budgetHtml += `<p><strong>Funds:</strong> $${totalCostBudget.toLocaleString()} total budget</p>`;
+    budgetHtml += `<p><strong>Spent this period:</strong> $${spentFundsEstimate.toFixed(2)} (est.)</p>`;
+  }
+  if (!totalBudgetHours && !totalCostBudget) {
+    budgetHtml += "<p>No budget set in Harvest for this project.</p>";
+  }
+
+  let tasksHtml = "";
+  if (entries.length > 0) {
+    tasksHtml = `
+    <table style="border-collapse:collapse;width:100%;max-width:560px;margin-top:8px;" cellpadding="6" cellspacing="0" border="1">
+      <thead>
+        <tr style="background:#f0f0f0;">
+          <th style="text-align:left;">Date</th>
+          <th style="text-align:left;">Notes</th>
+          <th style="text-align:right;">Hours</th>
+          <th style="text-align:left;">Resource</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${entries
+          .map(
+            (e) =>
+              `<tr>
+                <td>${e.spent_date}</td>
+                <td>${escapeHtml((e.notes || "—").slice(0, 80))}</td>
+                <td style="text-align:right;">${e.hours.toFixed(1)}</td>
+                <td>${escapeHtml(firstName(e.user.name))}</td>
+              </tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>`;
+  } else {
+    tasksHtml = "<p>No time entries in this period.</p>";
+  }
+
+  return `
+<div style="font-family:sans-serif;font-size:14px;line-height:1.5;color:#111;">
+  <p style="font-size:16px;font-weight:600;margin:0 0 4px 0;">${escapeHtml(titleLine)}</p>
+  <p style="font-size:12px;color:#666;margin:0 0 16px 0;">${escapeHtml(periodLabel)}</p>
+  <p style="font-weight:600;margin:0 0 6px 0;">Budget</p>
+  <div style="margin-bottom:16px;">${budgetHtml || ""}</div>
+  <p style="font-weight:600;margin:0 0 6px 0;">Tasks</p>
+  ${tasksHtml}
+  <p style="margin-top:12px;"><strong>Total hours consumed:</strong> ${totalHours.toFixed(1)}</p>
+</div>`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

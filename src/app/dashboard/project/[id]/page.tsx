@@ -47,6 +47,7 @@ export default async function ProjectPage({
   ]);
   const connectedProviders = new Set((integrations ?? []).map((r) => r.provider as string));
   const driveConnected = connectedProviders.has("google_drive");
+  const jiraConnected = connectedProviders.has("jira");
 
   if (error || !project) notFound();
 
@@ -65,6 +66,7 @@ export default async function ProjectPage({
       automations={automations ?? []}
       openReportId={openReport ?? undefined}
       driveConnected={driveConnected}
+      jiraConnected={jiraConnected}
     />
   );
 }

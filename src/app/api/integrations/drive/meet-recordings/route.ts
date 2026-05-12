@@ -1,8 +1,22 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getGoogleAccessToken } from "@/lib/google-auth";
 import { NextResponse } from "next/server";
 
 const DRIVE_FILES = "https://www.googleapis.com/drive/v3/files";
+
+/** True if the Google API response indicates expired/invalid credentials. */
+function isGoogleAuthError(status: number, message: string): boolean {
+  if (status === 401 || status === 403) return true;
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("invalid authentication") ||
+    lower.includes("invalid credentials") ||
+    lower.includes("expected oauth") ||
+    lower.includes("token expired") ||
+    lower.includes("invalid_grant")
+  );
+}
 
 /** List Google Docs in the user's "Meet Recordings" folder (My Drive). */
 export async function GET() {
@@ -11,20 +25,14 @@ export async function GET() {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const supabase = createAdminClient();
-  const { data: integration } = await supabase
-    .from("user_integrations")
-    .select("access_token")
-    .eq("user_id", userId)
-    .eq("provider", "google_drive")
-    .single();
-  if (!integration?.access_token) {
+  const token = await getGoogleAccessToken(userId);
+  if (!token) {
     return NextResponse.json(
-      { error: "Google Drive not connected. Connect in Settings." },
+      { error: "Google Drive not connected. Connect on the dashboard." },
       { status: 400 }
     );
   }
-  const token = integration.access_token;
+  const supabase = createAdminClient();
 
   try {
     // Find "Meet Recordings" folder: first try root-only (most reliable), then drive-wide if empty
@@ -45,8 +53,22 @@ export async function GET() {
       }
       const message =
         errJson?.error?.message || errText.slice(0, 200) || folderRes.statusText;
+      if (isGoogleAuthError(folderRes.status, message)) {
+        await supabase
+          .from("user_integrations")
+          .delete()
+          .eq("user_id", userId)
+          .eq("provider", "google_drive");
+        return NextResponse.json(
+          {
+            error: "Google Drive connection expired or was revoked. Reconnect on the dashboard.",
+            authExpired: true,
+          },
+          { status: 401 }
+        );
+      }
       return NextResponse.json(
-        { error: "Could not list Drive folders. Reconnect Google Drive in Settings.", details: message },
+        { error: "Could not list Drive folders. Reconnect Google Drive on the dashboard.", details: message },
         { status: 502 }
       );
     }
@@ -62,6 +84,30 @@ export async function GET() {
         `${DRIVE_FILES}?q=${encodeURIComponent("name contains 'Meet' and name contains 'Recording' and mimeType = 'application/vnd.google-apps.folder' and trashed = false")}&fields=files(id,name)&pageSize=20`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      if (!driveWideRes.ok) {
+        const errText = await driveWideRes.text();
+        let errJson: { error?: { message?: string } } = {};
+        try {
+          errJson = JSON.parse(errText);
+        } catch {
+          // keep errText as-is
+        }
+        const wideMessage = errJson?.error?.message || errText.slice(0, 200) || "";
+        if (isGoogleAuthError(driveWideRes.status, wideMessage)) {
+          await supabase
+            .from("user_integrations")
+            .delete()
+            .eq("user_id", userId)
+            .eq("provider", "google_drive");
+          return NextResponse.json(
+            {
+              error: "Google Drive connection expired or was revoked. Reconnect on the dashboard.",
+              authExpired: true,
+            },
+            { status: 401 }
+          );
+        }
+      }
       if (driveWideRes.ok) {
         const wideData = (await driveWideRes.json()) as { files?: { id: string; name: string }[] };
         const wideFolders = wideData.files ?? [];
@@ -82,6 +128,27 @@ export async function GET() {
     );
     if (!listRes.ok) {
       const errText = await listRes.text();
+      let errJson: { error?: { message?: string } } = {};
+      try {
+        errJson = JSON.parse(errText);
+      } catch {
+        // keep errText as-is
+      }
+      const listMessage = errJson?.error?.message || errText.slice(0, 200) || "";
+      if (isGoogleAuthError(listRes.status, listMessage)) {
+        await supabase
+          .from("user_integrations")
+          .delete()
+          .eq("user_id", userId)
+          .eq("provider", "google_drive");
+        return NextResponse.json(
+          {
+            error: "Google Drive connection expired or was revoked. Reconnect on the dashboard.",
+            authExpired: true,
+          },
+          { status: 401 }
+        );
+      }
       return NextResponse.json(
         { error: "Could not list files in folder.", details: errText, folderId: folder.id, folderName: folder.name },
         { status: 502 }
@@ -120,7 +187,7 @@ export async function GET() {
     });
   } catch {
     return NextResponse.json(
-      { error: "Google Drive request failed. Reconnect in Settings if this persists." },
+      { error: "Google Drive request failed. Reconnect on the dashboard if this persists." },
       { status: 502 }
     );
   }

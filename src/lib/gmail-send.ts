@@ -1,6 +1,11 @@
+import nodemailer from "nodemailer";
+import { getAppBaseUrl } from "@/lib/app-url";
 import { getGoogleAccessToken } from "@/lib/google-auth";
 
 const GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
+
+/** Placeholder From; Gmail API replaces it with the authenticated user's address when sending. */
+const PLACEHOLDER_FROM = "Valtira PM <noreply@valtira.net>";
 
 function base64UrlEncode(buffer: Buffer): string {
   return buffer
@@ -10,59 +15,36 @@ function base64UrlEncode(buffer: Buffer): string {
     .replace(/=+$/, "");
 }
 
-/** RFC 2047: encode non-ASCII header value (e.g. Subject) as UTF-8 base64 so it displays correctly. */
-function encodeHeaderValue(value: string): string {
-  if (!/[^\x00-\x7F]/.test(value)) return value;
-  const b64 = Buffer.from(value, "utf8").toString("base64");
-  return `=?UTF-8?B?${b64}?=`;
-}
-
-/**
- * Build a MIME message (RFC 2822) for HTML body + optional attachments.
- * From is left empty so Gmail uses the authenticated user's address.
- */
-function buildMimeMessage(opts: {
+/** Build RFC 2822 MIME message with nodemailer so clients render HTML correctly. Returns raw message buffer. */
+async function buildRawMessage(opts: {
   to: string[];
   cc?: string[];
   subject: string;
   html: string;
+  plainText?: string;
   attachments?: { filename: string; content: Buffer }[];
-}): string {
-  const boundary = "----=_Part_" + Math.random().toString(36).slice(2);
-  const toLine = opts.to.join(", ");
-  const ccLine = opts.cc?.length ? opts.cc.join(", ") : "";
-  const dateLine = new Date().toUTCString();
-  const subjectLine = encodeHeaderValue(opts.subject);
-  const lines: string[] = [
-    `To: ${toLine}`,
-    ccLine ? `Cc: ${ccLine}` : "",
-    `Subject: ${subjectLine}`,
-    `Date: ${dateLine}`,
-    "MIME-Version: 1.0",
-    `Content-Type: multipart/mixed; boundary="${boundary}"`,
-    "",
-    `--${boundary}`,
-    "Content-Type: text/html; charset=UTF-8",
-    "Content-Transfer-Encoding: base64",
-    "",
-    (Buffer.from(opts.html, "utf8").toString("base64").match(/.{1,76}/g) ?? []).join("\r\n"),
-  ];
-  if (opts.attachments?.length) {
-    for (const att of opts.attachments) {
-      const b64 = att.content.toString("base64");
-      const wrapped = b64.match(/.{1,76}/g)?.join("\r\n") ?? b64;
-      lines.push(
-        `--${boundary}`,
-        `Content-Type: application/pdf; name="${att.filename.replace(/"/g, '\\"')}"`,
-        "Content-Disposition: attachment; filename=\"" + att.filename.replace(/"/g, '\\"') + "\"",
-        "Content-Transfer-Encoding: base64",
-        "",
-        wrapped,
-      );
-    }
+}): Promise<Buffer> {
+  const htmlTrimmed = opts.html.replace(/\r\n/g, "\n").trim();
+  const text = opts.plainText ?? htmlTrimmed.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  const transporter = nodemailer.createTransport({
+    streamTransport: true,
+    buffer: true,
+    newline: "windows",
+  });
+  const result = await transporter.sendMail({
+    from: PLACEHOLDER_FROM,
+    to: opts.to.join(", "),
+    cc: opts.cc?.length ? opts.cc.join(", ") : undefined,
+    subject: opts.subject.trim(),
+    text,
+    html: htmlTrimmed,
+    attachments: opts.attachments?.map((a) => ({ filename: a.filename, content: a.content })),
+  });
+  const raw = result.message;
+  if (!raw || !Buffer.isBuffer(raw)) {
+    throw new Error("Failed to build email message");
   }
-  lines.push(`--${boundary}--`, "");
-  return lines.join("\r\n");
+  return raw;
 }
 
 export type SendEmailViaGmailOptions = {
@@ -89,8 +71,14 @@ export async function sendEmailViaGmail(
     return { error: "At least one recipient is required." };
   }
 
-  const mime = buildMimeMessage(opts);
-  const raw = base64UrlEncode(Buffer.from(mime, "utf8"));
+  let rawBuffer: Buffer;
+  try {
+    rawBuffer = await buildRawMessage(opts);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { error: `Failed to build email: ${msg}` };
+  }
+  const raw = base64UrlEncode(rawBuffer);
 
   const res = await fetch(GMAIL_SEND_URL, {
     method: "POST",
@@ -116,4 +104,62 @@ export async function sendEmailViaGmail(
     return { error: text ? `Gmail: ${text.slice(0, 300)}` : `Gmail API error: ${res.status}` };
   }
   return {};
+}
+
+/** Send "report ready for approval" from the PM's Gmail. */
+export async function sendReportApprovalRequestViaGmail(
+  ownerUserId: string,
+  toEmails: string[],
+  projectName: string,
+  projectId: string,
+  reportId: string
+): Promise<{ error?: string }> {
+  if (toEmails.length === 0) return { error: "No recipients" };
+  const baseUrl = getAppBaseUrl();
+  const reviewUrl = `${baseUrl}/dashboard/project/${projectId}?openReport=${reportId}`;
+  const subject = `You have a new report to approve for ${projectName}`;
+  const html = `
+    <p>You have a new report to approve for <strong>${projectName}</strong>.</p>
+    <p>Go to the Valtira PM application to review.</p>
+    <p><a href="${reviewUrl}" style="display:inline-block;background:#16a34a;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:600;">Review report</a></p>
+  `;
+  return sendEmailViaGmail(ownerUserId, { to: toEmails, subject, html });
+}
+
+/** Send 24h reminder for pending/rejected report from the PM's Gmail. */
+export async function sendReportReminderViaGmail(
+  ownerUserId: string,
+  toEmails: string[],
+  projectName: string,
+  projectId: string,
+  reportId: string
+): Promise<{ error?: string }> {
+  if (toEmails.length === 0) return { error: "No recipients" };
+  const baseUrl = getAppBaseUrl();
+  const reviewUrl = `${baseUrl}/dashboard/project/${projectId}?openReport=${reportId}`;
+  const subject = `Your report for ${projectName} needs attention`;
+  const html = `
+    <p>Your report for <strong>${projectName}</strong> needs attention.</p>
+    <p>Please have your team correct their time entries and review and approve the report.</p>
+    <p><a href="${reviewUrl}" style="display:inline-block;background:#111;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:600;">Review report</a></p>
+  `;
+  return sendEmailViaGmail(ownerUserId, { to: toEmails, subject, html });
+}
+
+/** Send team invite email from the super_admin's Gmail. */
+export async function sendInviteEmailViaGmail(
+  fromUserId: string,
+  to: string,
+  token: string
+): Promise<{ error?: string }> {
+  const baseUrl = getAppBaseUrl();
+  const acceptUrl = `${baseUrl}/auth/accept-invite?token=${encodeURIComponent(token)}`;
+  const subject = "You're invited to Valtira PM";
+  const html = `
+    <p>You've been invited to join Valtira PM – project management and client reporting.</p>
+    <p><a href="${acceptUrl}" style="display:inline-block;background:#111;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;">Accept invite</a></p>
+    <p>Or copy this link: ${acceptUrl}</p>
+    <p>This link expires in 7 days. After you accept, you can sign in with Google and connect your Harvest and Jira accounts.</p>
+  `;
+  return sendEmailViaGmail(fromUserId, { to: [to], subject, html });
 }

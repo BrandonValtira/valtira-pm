@@ -18,7 +18,7 @@ export async function GET() {
     .single();
   if (!integration?.access_token) {
     return NextResponse.json(
-      { error: "Jira not connected. Sign in with Jira in Settings." },
+      { error: "Jira not connected. Connect Jira on the dashboard." },
       { status: 400 }
     );
   }
@@ -41,7 +41,7 @@ export async function GET() {
       return NextResponse.json({ projects });
     }
     return NextResponse.json(
-      { error: "Jira not fully connected. Sign in with Jira again in Settings." },
+      { error: "Jira not fully connected. Reconnect Jira on the dashboard." },
       { status: 400 }
     );
   } catch (e) {

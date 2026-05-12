@@ -148,15 +148,22 @@ export function EditProjectForm({
             </label>
             {harvestProjects.length === 0 ? (
               <p className="mt-1 text-sm text-neutral-700">
-                Connect Harvest in{" "}
-                <Link href="/dashboard/settings" className="text-neutral-700 underline">
-                  Settings
+                Connect Harvest on the{" "}
+                <Link href="/dashboard" className="text-neutral-700 underline">
+                  dashboard
                 </Link>{" "}
                 to select projects.
               </p>
             ) : (
               <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto rounded-md border border-neutral-200 p-2">
-                {harvestProjects.map((p) => (
+                {harvestProjects
+                  .sort((a, b) => {
+                    const clientA = (a.client?.name ?? "\uFFFF").toLowerCase();
+                    const clientB = (b.client?.name ?? "\uFFFF").toLowerCase();
+                    const cmp = clientA.localeCompare(clientB, undefined, { sensitivity: "base" });
+                    return cmp !== 0 ? cmp : a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+                  })
+                  .map((p) => (
                   <li key={p.id} className="flex items-center gap-2">
                     <input
                       type="checkbox"
@@ -166,10 +173,9 @@ export function EditProjectForm({
                       className="h-4 w-4 rounded border-neutral-300"
                     />
                     <label htmlFor={`harvest-${p.id}`} className="text-sm">
-                      {p.name}
-                      {p.client?.name && (
-                        <span className="ml-1 text-neutral-700">({p.client.name})</span>
-                      )}
+                      {p.client?.name && <span className="text-neutral-600">{p.client.name}</span>}
+                      {p.client?.name && <span className="text-neutral-400"> · </span>}
+                      <span className={p.client?.name ? "text-neutral-700" : ""}>{p.name}</span>
                     </label>
                   </li>
                 ))}
@@ -185,9 +191,9 @@ export function EditProjectForm({
             </label>
             {jiraProjects.length === 0 ? (
               <p className="mt-1 text-sm text-neutral-700">
-                Connect Jira in{" "}
-                <Link href="/dashboard/settings" className="text-neutral-700 underline">
-                  Settings
+                Connect Jira on the{" "}
+                <Link href="/dashboard" className="text-neutral-700 underline">
+                  dashboard
                 </Link>{" "}
                 to select projects.
               </p>

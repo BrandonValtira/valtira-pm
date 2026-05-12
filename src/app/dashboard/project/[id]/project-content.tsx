@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { ComponentProps } from "react";
 import { useRef, useState } from "react";
 import { ProjectContextSection } from "./project-context-section";
@@ -16,6 +17,7 @@ export function ProjectContent({
   automations,
   openReportId,
   driveConnected,
+  jiraConnected,
 }: {
   projectId: string;
   projectName: string;
@@ -26,9 +28,33 @@ export function ProjectContent({
   automations: ComponentProps<typeof ReportSection>["initialAutomations"];
   openReportId?: string;
   driveConnected?: boolean;
+  jiraConnected?: boolean;
 }) {
+  const router = useRouter();
   const actionsRef = useRef<HTMLDivElement>(null);
   const [slotReady, setSlotReady] = useState(false);
+  const [deleteSectionOpen, setDeleteSectionOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  async function handleDeleteProject() {
+    if (!deleteConfirm) return;
+    setDeleteError("");
+    setDeleteLoading(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeleteError(data.error || "Failed to delete project");
+        return;
+      }
+      router.push("/dashboard");
+      router.refresh();
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
 
   return (
     <div>
@@ -36,7 +62,7 @@ export function ProjectContent({
         href="/dashboard"
         className="text-sm text-neutral-700 hover:text-neutral-900"
       >
-        ← Back to projects
+        ← Back to dashboard
       </Link>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold text-neutral-900">
@@ -114,7 +140,57 @@ export function ProjectContent({
         actionsContainerRef={actionsRef}
         actionsSlotReady={slotReady}
       />
-      <ProjectContextSection projectId={projectId} jiraKeys={jiraKeys} driveConnected={driveConnected} />
+      <ProjectContextSection projectId={projectId} jiraKeys={jiraKeys} driveConnected={driveConnected} jiraConnected={jiraConnected} />
+
+      <div className="mt-12">
+        {!deleteSectionOpen ? (
+          <button
+            type="button"
+            onClick={() => setDeleteSectionOpen(true)}
+            className="rounded-lg border border-red-300 bg-transparent px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+          >
+            Delete project
+          </button>
+        ) : (
+          <div className="rounded-xl border border-red-200 bg-red-50/50 p-4">
+            <h2 className="text-sm font-medium text-red-900">Delete project</h2>
+            <p className="mt-1 text-sm text-red-800">
+              Permanently delete this project and all its reports, automations, and history. This cannot be undone.
+            </p>
+            {deleteError && <p className="mt-2 text-sm text-red-600">{deleteError}</p>}
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-red-900">
+                <input
+                  type="checkbox"
+                  checked={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.checked)}
+                  className="rounded border-red-300 text-red-600 focus:ring-red-500"
+                />
+                I understand, delete this project
+              </label>
+              <button
+                type="button"
+                onClick={handleDeleteProject}
+                disabled={!deleteConfirm || deleteLoading}
+                className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:hover:bg-white"
+              >
+                {deleteLoading ? "Deleting…" : "Delete project"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteSectionOpen(false);
+                  setDeleteConfirm(false);
+                  setDeleteError("");
+                }}
+                className="rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

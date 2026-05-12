@@ -1,37 +1,59 @@
+import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createReport } from "@/lib/create-report";
-import { sendReportApprovalRequestEmail, sendReportReminderEmail } from "@/lib/invite-email";
+import { createPlaceholderReport, createReport } from "@/lib/create-report";
+import { sendReportApprovalRequestViaGmail, sendReportReminderViaGmail } from "@/lib/gmail-send";
 import { NextResponse } from "next/server";
 
-/** Verify cron secret (Vercel Cron sends CRON_SECRET in Authorization: Bearer or header) */
-function isAuthorized(req: Request): boolean {
+/** Authorized if: (1) CRON_SECRET matches Bearer or x-cron-secret header, or (2) user is logged in (for testing). */
+async function isAuthorized(req: Request): Promise<{ ok: boolean; isTestRun: boolean; automationId: string | null; userId: string | null; isSuperAdmin: boolean }> {
+  const url = new URL(req.url);
   const authHeader = req.headers.get("authorization");
   const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  if (authHeader === `Bearer ${secret}`) return true;
-  const headerSecret = req.headers.get("x-cron-secret");
-  return headerSecret === secret;
+  if (secret && (authHeader === `Bearer ${secret}` || req.headers.get("x-cron-secret") === secret)) {
+    return { ok: true, isTestRun: false, automationId: null, userId: null, isSuperAdmin: false };
+  }
+  const session = await auth();
+  const userId = (session?.user as { id?: string })?.id ?? null;
+  const isSuperAdmin = (session?.user as { role?: string })?.role === "super_admin";
+  if (userId) {
+    const testRun = url.searchParams.get("test") === "1";
+    const automationId = url.searchParams.get("automationId")?.trim() || null;
+    return { ok: true, isTestRun: testRun, automationId, userId, isSuperAdmin };
+  }
+  return { ok: false, isTestRun: false, automationId: null, userId: null, isSuperAdmin: false };
 }
 
-/** Get emails to notify for report approval: project owner + all super_admins */
+/** Get emails to notify for report approval: project owner only (no super_admin CC). */
 async function getApprovalRecipientEmails(
   supabase: ReturnType<typeof createAdminClient>,
   ownerUserId: string
 ): Promise<string[]> {
-  const [owner, superAdmins] = await Promise.all([
-    supabase.from("users").select("email").eq("id", ownerUserId).single(),
-    supabase.from("users").select("email").eq("role", "super_admin").not("email", "is", null),
-  ]);
-  const emails = new Set<string>();
-  if (owner?.data?.email) emails.add(owner.data.email.trim().toLowerCase());
-  (superAdmins.data ?? []).forEach((u: { email: string | null }) => {
-    if (u.email) emails.add(u.email.trim().toLowerCase());
-  });
-  return Array.from(emails);
+  const { data: owner } = await supabase.from("users").select("email").eq("id", ownerUserId).single();
+  if (!owner?.email) return [];
+  return [owner.email.trim().toLowerCase()];
 }
 
-/** Current time in Central (America/Chicago) - time_utc in DB is stored as Central. */
-function getCentralNow(): { timeUtc: string; dayOfWeek: number; dayOfMonth: number } {
+/** Normalize HH:MM so "9:00" and "09:00" match. */
+function normalizeTime(hhmm: string): string {
+  const parts = (hhmm ?? "").trim().split(":");
+  const h = Math.min(23, Math.max(0, parseInt(parts[0], 10) || 0));
+  const m = Math.min(59, Math.max(0, parseInt(parts[1], 10) || 0));
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+}
+
+/** Count weekdays (1–5) from the 1st through the given day in Central. */
+function getBusinessDayOfMonthInCentral(year: number, month: number, day: number): number {
+  let count = 0;
+  for (let d = 1; d <= day; d++) {
+    const date = new Date(Date.UTC(year, month - 1, d, 12, 0, 0));
+    const w = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", weekday: "short" }).format(date);
+    if (w !== "Sat" && w !== "Sun") count++;
+  }
+  return count;
+}
+
+/** Current time in Central (America/Chicago). Monthly automations use business day (1st, 2nd, 3rd… weekday). */
+function getCentralNow(): { timeUtc: string; dayOfWeek: number; dayOfMonth: number; businessDayOfMonth: number; centralYear: number; centralMonth: number; centralDay: number } {
   const now = new Date();
   const timeFormatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Chicago",
@@ -43,6 +65,8 @@ function getCentralNow(): { timeUtc: string; dayOfWeek: number; dayOfMonth: numb
     timeZone: "America/Chicago",
     weekday: "short",
     day: "numeric",
+    month: "numeric",
+    year: "numeric",
   });
   const timeParts = timeFormatter.formatToParts(now);
   const dateParts = dateFormatter.formatToParts(now);
@@ -52,39 +76,74 @@ function getCentralNow(): { timeUtc: string; dayOfWeek: number; dayOfMonth: numb
   const timeUtc = `${hour}:${minute}`;
   const dayNames: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   const dayOfWeek = dayNames[get(dateParts, "weekday")] ?? 0;
-  const dayOfMonth = Math.min(28, parseInt(get(dateParts, "day"), 10) || 1);
-  return { timeUtc, dayOfWeek, dayOfMonth };
+  const centralDay = parseInt(get(dateParts, "day"), 10) || 1;
+  const centralMonth = parseInt(get(dateParts, "month"), 10) || 1;
+  const centralYear = parseInt(get(dateParts, "year"), 10) || now.getFullYear();
+  const dayOfMonth = Math.min(28, centralDay);
+  const businessDayOfMonth = getBusinessDayOfMonthInCentral(centralYear, centralMonth, centralDay);
+  return { timeUtc, dayOfWeek, dayOfMonth, businessDayOfMonth, centralYear, centralMonth, centralDay };
 }
 
 /**
  * Run report automations: create reports for due automations (requires_approval → pending_approval + email),
  * then send 24h reminders for reports still awaiting action.
- * Call via Vercel Cron: 0 * * * * (every hour) with Authorization: Bearer CRON_SECRET.
- * Schedule matching uses Central time (America/Chicago); time_utc in DB is stored as Central.
+ * - Prod: Vercel Cron calls with Authorization: Bearer CRON_SECRET (no query params).
+ * - Test: Logged-in user calls GET with ?test=1 to run all active automations now (ignores schedule).
+ * - Test one: GET with ?test=1&automationId=xxx to run only that automation (user must own the project or be super_admin).
  */
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { ok, isTestRun, automationId: requestedAutomationId, userId, isSuperAdmin } = await isAuthorized(req);
+  if (!ok) {
+    return NextResponse.json({ error: "Unauthorized. Use CRON_SECRET or log in and add ?test=1 to test." }, { status: 401 });
   }
   const supabase = createAdminClient();
-  const { timeUtc, dayOfWeek, dayOfMonth } = getCentralNow();
+  const { timeUtc, dayOfWeek, businessDayOfMonth } = getCentralNow();
 
-  const { data: automations } = await supabase
-    .from("report_automations")
-    .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, requires_approval")
-    .eq("is_active", true);
+  let due: { id: string; project_id: string; period_type: string; day_of_week: number | null; day_of_month: number | null; time_utc: string; requires_approval: boolean }[];
 
-  const due = (automations ?? []).filter((a) => {
-    if ((a.time_utc ?? "").slice(0, 5) !== timeUtc) return false;
-    if (a.period_type === "week") return (a.day_of_week ?? 0) === dayOfWeek;
-    if (a.period_type === "month") return (a.day_of_month ?? 1) === dayOfMonth;
-    return false;
-  });
+  if (isTestRun && requestedAutomationId && userId) {
+    const { data: automation } = await supabase
+      .from("report_automations")
+      .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, requires_approval")
+      .eq("id", requestedAutomationId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (!automation) {
+      return NextResponse.json({ error: "Automation not found or inactive." }, { status: 404 });
+    }
+    const { data: project } = await supabase
+      .from("projects")
+      .select("owner_user_id")
+      .eq("id", automation.project_id)
+      .single();
+    if (!project?.owner_user_id) {
+      return NextResponse.json({ error: "Project not found." }, { status: 404 });
+    }
+    if (project.owner_user_id !== userId && !isSuperAdmin) {
+      return NextResponse.json({ error: "You don't have access to this automation." }, { status: 403 });
+    }
+    due = [automation];
+  } else {
+    const { data: automations } = await supabase
+      .from("report_automations")
+      .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, requires_approval")
+      .eq("is_active", true);
+
+    due = isTestRun
+      ? (automations ?? [])
+      : (automations ?? []).filter((a) => {
+          if (normalizeTime((a.time_utc ?? "").slice(0, 5)) !== timeUtc) return false;
+          if (a.period_type === "week") return (a.day_of_week ?? 0) === dayOfWeek;
+          if (a.period_type === "month") return (a.day_of_month ?? 1) === businessDayOfMonth;
+          return false;
+        });
+  }
 
   const results: { created?: string[]; reminders?: string[]; errors?: string[] } = {};
   const errors: string[] = [];
 
   for (const automation of due) {
+    let report: { id: string };
     try {
       const { data: project } = await supabase
         .from("projects")
@@ -92,19 +151,31 @@ export async function GET(req: Request) {
         .eq("id", automation.project_id)
         .single();
       if (!project?.owner_user_id) continue;
-      const report = await createReport(
-        automation.project_id,
-        project.owner_user_id,
-        automation.period_type as "week" | "month",
-        undefined,
-        undefined,
-        {
-          status: "pending_approval",
-          approvalRequestedAt: new Date().toISOString(),
-        }
-      );
+      try {
+        report = await createReport(
+          automation.project_id,
+          project.owner_user_id,
+          automation.period_type as "week" | "month",
+          undefined,
+          undefined,
+          {
+            status: "pending_approval",
+            approvalRequestedAt: new Date().toISOString(),
+          }
+        );
+      } catch (createErr) {
+        const msg = createErr instanceof Error ? createErr.message : String(createErr);
+        report = await createPlaceholderReport(
+          automation.project_id,
+          project.owner_user_id,
+          automation.period_type as "week" | "month",
+          msg
+        );
+        errors.push(`report placeholder (Harvest failed) ${automation.project_id}: ${msg}`);
+      }
       const toEmails = await getApprovalRecipientEmails(supabase, project.owner_user_id);
-      const sendErr = await sendReportApprovalRequestEmail(
+      const sendErr = await sendReportApprovalRequestViaGmail(
+        project.owner_user_id,
         toEmails,
         project.name,
         automation.project_id,
@@ -117,15 +188,18 @@ export async function GET(req: Request) {
     }
   }
 
+  const runReminders = !(isTestRun && requestedAutomationId);
   const now = new Date();
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-  const { data: needsReminder } = await supabase
-    .from("reports")
-    .select("id, project_id")
-    .in("status", ["pending_approval", "rejected"])
-    .not("approval_requested_at", "is", null)
-    .lt("approval_requested_at", twentyFourHoursAgo)
-    .is("reminder_sent_at", null);
+  const { data: needsReminder } = runReminders
+    ? await supabase
+        .from("reports")
+        .select("id, project_id")
+        .in("status", ["pending_approval", "rejected"])
+        .not("approval_requested_at", "is", null)
+        .lt("approval_requested_at", twentyFourHoursAgo)
+        .is("reminder_sent_at", null)
+    : { data: [] as { id: string; project_id: string }[] };
 
   for (const report of needsReminder ?? []) {
     try {
@@ -136,7 +210,7 @@ export async function GET(req: Request) {
         .single();
       if (!project?.owner_user_id) continue;
       const toEmails = await getApprovalRecipientEmails(supabase, project.owner_user_id);
-      const sendErr = await sendReportReminderEmail(toEmails, project.name, report.project_id, report.id);
+      const sendErr = await sendReportReminderViaGmail(project.owner_user_id, toEmails, project.name, report.project_id, report.id);
       if (sendErr.error) errors.push(`reminder ${report.id}: ${sendErr.error}`);
       else {
         await supabase.from("reports").update({ reminder_sent_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", report.id);
@@ -148,5 +222,6 @@ export async function GET(req: Request) {
   }
 
   if (errors.length) results.errors = errors;
+  if (isTestRun) (results as { testRun?: boolean }).testRun = true;
   return NextResponse.json(results);
 }

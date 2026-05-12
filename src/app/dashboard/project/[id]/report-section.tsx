@@ -3,6 +3,7 @@
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, type RefObject } from "react";
+import { formatDateOnly } from "@/lib/report-week";
 
 type TimeEntry = {
   id: number;
@@ -63,17 +64,22 @@ function firstName(fullName: string): string {
   return part ?? fullName;
 }
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+/** Format YYYY-MM-DD for display without timezone shift (matches PDF/email). */
+function formatReportDate(d: string) {
+  return formatDateOnly(d);
 }
 
+const LONG_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
 function formatMonthRange(start: string, end: string) {
-  const s = new Date(start);
-  const e = new Date(end);
-  if (s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear()) {
-    return s.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const startStr = String(start).slice(0, 10);
+  const endStr = String(end).slice(0, 10);
+  const [y1, m1] = startStr.split("-").map(Number);
+  const [y2, m2] = endStr.split("-").map(Number);
+  if (y1 === y2 && m1 === m2 && m1 >= 1 && m1 <= 12) {
+    return `${LONG_MONTHS[m1 - 1]} ${y1}`;
   }
-  return `${formatDate(start)} – ${formatDate(end)}`;
+  return `${formatDateOnly(startStr)} – ${formatDateOnly(endStr)}`;
 }
 
 /** Format HH:MM (24h) as "9:00 AM" (Central time display) */
@@ -87,11 +93,20 @@ function formatTimeCentral(hhmm: string): string {
   return `${hour - 12}:${min.toString().padStart(2, "0")} PM`;
 }
 
+function ordinal(n: number): string {
+  const s = n.toString();
+  if (s.endsWith("11") || s.endsWith("12") || s.endsWith("13")) return `${n}th`;
+  if (s.endsWith("1")) return `${n}st`;
+  if (s.endsWith("2")) return `${n}nd`;
+  if (s.endsWith("3")) return `${n}rd`;
+  return `${n}th`;
+}
+
 function formatSchedule(a: Automation): string {
   const timeStr = formatTimeCentral(a.time_utc) + " CT";
   if (a.period_type === "month") {
-    const day = a.day_of_month ?? 1;
-    return `Day ${day} of month at ${timeStr}`;
+    const n = a.day_of_month ?? 1;
+    return `${ordinal(n)} business day of month at ${timeStr}`;
   }
   const day = a.day_of_week ?? 1;
   return `${DAYS[day]}s at ${timeStr}`;
@@ -99,7 +114,9 @@ function formatSchedule(a: Automation): string {
 
 /** Single report content block (used in list and in modal) */
 function ReportContent({ report }: { report: Report }) {
-  const snapshot = report.harvest_data_snapshot;
+  const snapshot = report.harvest_data_snapshot as { _placeholder?: boolean; _error?: string; timeEntries?: TimeEntry[]; harvestProjectNames?: string[]; harvestProjects?: HarvestProjectSnapshot[] } | undefined;
+  const isPlaceholder = !!(snapshot && "_placeholder" in snapshot && snapshot._placeholder);
+  const placeholderError = isPlaceholder && snapshot && "_error" in snapshot ? String((snapshot as { _error?: string })._error) : "";
   const entries = snapshot?.timeEntries ?? [];
   const totalHours = entries.reduce((s, e) => s + e.hours, 0);
   const projectNames = snapshot?.harvestProjectNames ?? [];
@@ -126,10 +143,17 @@ function ReportContent({ report }: { report: Report }) {
   const periodLabel =
     report.period_type === "month"
       ? `Month: ${formatMonthRange(report.period_start, report.period_end)}`
-      : `Week: ${formatDate(report.period_start)} – ${formatDate(report.period_end)}`;
+      : `Week: ${formatReportDate(report.period_start)} – ${formatReportDate(report.period_end)}`;
 
   return (
     <>
+      {isPlaceholder && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <p className="font-medium">Report was created but Harvest data could not be loaded.</p>
+          {placeholderError && <p className="mt-1 text-amber-700">{placeholderError}</p>}
+          <p className="mt-1">Connect Harvest (and link projects) in Settings, then use “Regenerate” to load data.</p>
+        </div>
+      )}
       <h3 className="text-base font-semibold text-neutral-900">
         {[clientLabel, projectLabel].filter(Boolean).join(" · ")}
       </h3>
@@ -252,6 +276,11 @@ export function ReportSection({
   const [generatePeriodModal, setGeneratePeriodModal] = useState<"week" | "month" | null>(null);
   const [generatePeriodValue, setGeneratePeriodValue] = useState<string>("last");
   const [editingAutomationId, setEditingAutomationId] = useState<string | null>(null);
+  const [sendTestAutomationId, setSendTestAutomationId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setReports(initialReports);
+  }, [initialReports]);
 
   useEffect(() => {
     if (!initialOpenReportId || reports.length === 0) return;
@@ -337,6 +366,22 @@ export function ReportSection({
     }
   }
 
+  async function sendTest(automationId: string) {
+    setSendTestAutomationId(automationId);
+    setError("");
+    try {
+      const res = await fetch(`/api/cron/run-automations?test=1&automationId=${encodeURIComponent(automationId)}`, { credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || `Failed (${res.status})`);
+        return;
+      }
+      router.refresh();
+    } finally {
+      setSendTestAutomationId(null);
+    }
+  }
+
   async function updateAutomation(
     id: string,
     title: string,
@@ -374,20 +419,22 @@ export function ReportSection({
     }
   }
 
+  /** Harvest week = Sunday–Saturday. Options match server getHarvestWeekBounds. */
   function getWeekPeriodOptions(): { value: string; label: string }[] {
-    const opts = [{ value: "last", label: "Last completed week" }];
-    for (let i = 1; i <= 8; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - 7 * i);
-      const day = d.getDay();
-      const diff = day === 0 ? 7 : day;
-      const monday = new Date(d);
-      monday.setDate(d.getDate() - diff - 6);
-      const sunday = new Date(monday);
-      sunday.setDate(monday.getDate() + 6);
-      const start = monday.toISOString().slice(0, 10);
-      const end = sunday.toISOString().slice(0, 10);
-      opts.push({ value: `${start}|${end}`, label: `Week of ${formatDate(start)} – ${formatDate(end)}` });
+    const opts = [{ value: "last", label: "Last completed week (Sun–Sat)" }];
+    const today = new Date();
+    const day = today.getDay();
+    const daysBackToLastSaturday = day === 0 ? 1 : day + 1;
+    const lastSaturday = new Date(today);
+    lastSaturday.setDate(today.getDate() - daysBackToLastSaturday);
+    for (let i = 0; i < 8; i++) {
+      const sat = new Date(lastSaturday);
+      sat.setDate(lastSaturday.getDate() - 7 * i);
+      const sun = new Date(sat);
+      sun.setDate(sat.getDate() - 6);
+      const start = sun.toISOString().slice(0, 10);
+      const end = sat.toISOString().slice(0, 10);
+      opts.push({ value: `${start}|${end}`, label: `Week of ${formatReportDate(start)} – ${formatReportDate(end)} (Sun–Sat)` });
     }
     return opts;
   }
@@ -480,6 +527,24 @@ export function ReportSection({
         prev.map((r) => (r.id === reportId ? { ...r, ...data } : r))
       );
       if (modalReport?.id === reportId) setModalReport((r) => (r ? { ...r, ...data } : null));
+      router.refresh();
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function deleteReport(reportId: string) {
+    setError("");
+    setLoading(`delete-${reportId}`);
+    try {
+      const res = await fetch(`/api/reports/${reportId}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || res.statusText || "Delete failed");
+        return;
+      }
+      setReports((prev) => prev.filter((r) => r.id !== reportId));
+      if (modalReport?.id === reportId) setModalReport(null);
       router.refresh();
     } finally {
       setLoading(null);
@@ -602,6 +667,14 @@ export function ReportSection({
                     <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
+                        onClick={() => sendTest(a.id)}
+                        disabled={!!loading || sendTestAutomationId !== null}
+                        className="shrink-0 rounded-lg border border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+                      >
+                        {sendTestAutomationId === a.id ? "Sending…" : "Send test"}
+                      </button>
+                      <button
+                        type="button"
                         role="switch"
                         aria-checked={a.is_active}
                         title={a.is_active ? "Active" : "Inactive"}
@@ -612,8 +685,8 @@ export function ReportSection({
                         }`}
                       >
                         <span
-                          className={`toggle-thumb pointer-events-none absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                            a.is_active ? "translate-x-5" : "translate-x-0.5"
+                          className={`toggle-thumb pointer-events-none absolute left-0.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border border-neutral-200/80 bg-white shadow-sm transition-transform ${
+                            a.is_active ? "translate-x-4" : "translate-x-0"
                           }`}
                         />
                       </button>
@@ -787,15 +860,37 @@ export function ReportSection({
             {modalReport.status === "rejected" && (
               <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm text-amber-900">
-                  It looks like this report is not ready yet. Follow up with your team on Slack to update their time entries. Once that&apos;s done, come back here and regenerate the report to review and approve for sending.
+                  It looks like this report is not ready yet. Follow up with your team on Slack to update their time entries. Once that&apos;s done, come back here and regenerate the report to review and approve for sending. Or delete this report if you don&apos;t need it.
                 </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => regenerateReport(modalReport.id)}
+                    disabled={!!loading}
+                    className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    {loading === `regenerate-${modalReport.id}` ? "Regenerating…" : "Regenerate report"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteReport(modalReport.id)}
+                    disabled={!!loading}
+                    className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {loading === `delete-${modalReport.id}` ? "Deleting…" : "Delete report"}
+                  </button>
+                </div>
+              </div>
+            )}
+            {["draft", "pending_approval"].includes(modalReport.status) && (
+              <div className="mt-4">
                 <button
                   type="button"
-                  onClick={() => regenerateReport(modalReport.id)}
+                  onClick={() => deleteReport(modalReport.id)}
                   disabled={!!loading}
-                  className="mt-3 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+                  className="text-sm text-red-600 hover:underline disabled:opacity-50"
                 >
-                  {loading === `regenerate-${modalReport.id}` ? "Regenerating…" : "Regenerate report"}
+                  {loading === `delete-${modalReport.id}` ? "Deleting…" : "Delete this report"}
                 </button>
               </div>
             )}
@@ -861,7 +956,7 @@ export function ReportSection({
                   className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-amber-100/80"
                 >
                   <span className="font-medium text-amber-900">
-                    {report.period_type === "month" ? "Monthly" : "Weekly"} · {formatDate(report.period_start)} – {formatDate(report.period_end)}
+                    {report.period_type === "month" ? "Monthly" : "Weekly"} · {formatReportDate(report.period_start)} – {formatReportDate(report.period_end)}
                   </span>
                   <span className="text-amber-700">{report.status === "rejected" ? "Rejected" : "Pending approval"}</span>
                 </button>
@@ -911,7 +1006,7 @@ export function ReportSection({
                       className="flex w-full items-center justify-between px-4 py-3 text-left text-sm hover:bg-neutral-50"
                     >
                       <span className="font-medium text-neutral-900">
-                        {report.period_type === "month" ? "Monthly" : "Weekly"} · {formatDate(report.period_start)} – {formatDate(report.period_end)}
+                        {report.period_type === "month" ? "Monthly" : "Weekly"} · {formatReportDate(report.period_start)} – {formatReportDate(report.period_end)}
                       </span>
                       <span className="text-neutral-600">View</span>
                     </button>
@@ -937,6 +1032,13 @@ const CENTRAL_TIME_OPTIONS: { value: string; label: string }[] = (() => {
   return opts;
 })();
 
+/** 1st–22nd business day of month (weekdays only) */
+const BUSINESS_DAY_OPTIONS = Array.from({ length: 22 }, (_, i) => {
+  const n = i + 1;
+  const label = n === 1 ? "1st business day" : n === 2 ? "2nd business day" : n === 3 ? "3rd business day" : `${n}th business day`;
+  return { value: n, label };
+});
+
 function AddAutomationForm({
   onSave,
   onCancel,
@@ -950,7 +1052,7 @@ function AddAutomationForm({
   const [requiresApproval, setRequiresApproval] = useState(true);
   const [periodType, setPeriodType] = useState<"week" | "month">("week");
   const [dayOfWeek, setDayOfWeek] = useState(1);
-  const [dayOfMonth, setDayOfMonth] = useState(1);
+  const [dayOfMonth, setDayOfMonth] = useState(1); // 1st–22nd business day
   const [timeCentral, setTimeCentral] = useState("09:00");
 
   return (
@@ -1034,15 +1136,19 @@ function AddAutomationForm({
           </div>
         ) : (
           <div>
-            <label className="text-sm text-neutral-600">Day of month (1–28)</label>
-            <input
-              type="number"
-              min={1}
-              max={28}
+            <label className="text-sm text-neutral-600">Business day of month</label>
+            <select
               value={dayOfMonth}
               onChange={(e) => setDayOfMonth(Number(e.target.value) || 1)}
               className="mt-1 block w-full max-w-xs rounded-md border border-neutral-300 px-3 py-2 text-sm"
-            />
+            >
+              {BUSINESS_DAY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-neutral-500">e.g. 1st = first weekday of the month (no weekends)</p>
           </div>
         )}
         <div>
@@ -1097,7 +1203,7 @@ function EditAutomationForm({
   const [requiresApproval, setRequiresApproval] = useState(automation.requires_approval !== false);
   const [periodType, setPeriodType] = useState<"week" | "month">(automation.period_type === "month" ? "month" : "week");
   const [dayOfWeek, setDayOfWeek] = useState(automation.day_of_week ?? 1);
-  const [dayOfMonth, setDayOfMonth] = useState(automation.day_of_month ?? 1);
+  const [dayOfMonth, setDayOfMonth] = useState(Math.min(22, Math.max(1, automation.day_of_month ?? 1)));
   const [timeCentral, setTimeCentral] = useState(automation.time_utc?.slice(0, 5) || "09:00");
 
   return (
@@ -1159,15 +1265,17 @@ function EditAutomationForm({
           </div>
         ) : (
           <div>
-            <label className="text-sm text-neutral-900">Day of month (1–28)</label>
-            <input
-              type="number"
-              min={1}
-              max={28}
+            <label className="text-sm text-neutral-900">Business day of month</label>
+            <select
               value={dayOfMonth}
               onChange={(e) => setDayOfMonth(Number(e.target.value) || 1)}
               className="mt-1 block w-full max-w-xs rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
-            />
+            >
+              {BUSINESS_DAY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-neutral-500">e.g. 1st = first weekday of the month (no weekends)</p>
           </div>
         )}
         <div>

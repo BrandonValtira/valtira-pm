@@ -13,11 +13,13 @@ export default async function TeamPage() {
   const [
     { data: users, error: usersError },
     { data: invites, error: invitesError },
+    { data: revokedInvites },
   ] = await Promise.all([
     supabase
       .from("users")
       .select("id, email, name, role, status, accepted_at, created_at")
       .neq("role", "super_admin")
+      .in("status", ["active", "invited"])
       .order("created_at", { ascending: false }),
     supabase
       .from("invites")
@@ -26,7 +28,27 @@ export default async function TeamPage() {
       .is("revoked_at", null)
       .gt("expires_at", new Date().toISOString())
       .order("created_at", { ascending: false }),
+    supabase
+      .from("invites")
+      .select("email")
+      .is("used_at", null)
+      .not("revoked_at", "is", null),
   ]);
+
+  const revokedEmails = new Set(
+    (revokedInvites ?? []).map((i) => (i.email ?? "").trim().toLowerCase()).filter(Boolean)
+  );
+  const activeUsers = (users ?? []).filter(
+    (u) => !revokedEmails.has((u.email ?? "").trim().toLowerCase())
+  );
+
+  if (revokedEmails.size > 0) {
+    await supabase
+      .from("users")
+      .update({ status: "revoked", updated_at: new Date().toISOString() })
+      .neq("role", "super_admin")
+      .in("email", Array.from(revokedEmails));
+  }
 
   if (usersError) {
     return (
@@ -50,7 +72,11 @@ export default async function TeamPage() {
       <p className="mt-1 text-sm text-neutral-700">
         Invite PMs by email. Once they accept, they can sign in with Google and connect Harvest & Jira in Settings.
       </p>
-      <TeamInvites users={users ?? []} invites={invites ?? []} />
+      <TeamInvites
+        users={activeUsers}
+        invites={invites ?? []}
+        currentUserId={(session?.user as { id?: string })?.id ?? ""}
+      />
     </div>
   );
 }

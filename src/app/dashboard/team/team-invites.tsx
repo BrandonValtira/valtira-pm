@@ -24,9 +24,11 @@ type Invite = {
 export function TeamInvites({
   users,
   invites,
+  currentUserId,
 }: {
   users: User[];
   invites: Invite[];
+  currentUserId: string;
 }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -78,6 +80,20 @@ export function TeamInvites({
       const res = await fetch(`/api/invites/${inviteId}/resend`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) setError(data.error || "Failed to resend");
+      else router.refresh();
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function revokeMember(userId: string) {
+    if (!confirm("Revoke this person’s access? They won’t be able to sign in until invited again.")) return;
+    setError("");
+    setLoading(`revoke-member-${userId}`);
+    try {
+      const res = await fetch(`/api/team/members/${userId}/revoke`, { method: "PATCH" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) setError(data.error || "Failed to revoke");
       else router.refresh();
     } finally {
       setLoading(null);
@@ -179,23 +195,45 @@ export function TeamInvites({
 
       <div className="rounded-xl border border-neutral-200 bg-white p-6">
         <h2 className="text-sm font-medium text-neutral-900">Team members</h2>
-        <p className="mt-1 text-sm text-neutral-700">PMs who have accepted and signed in.</p>
+        <p className="mt-1 text-sm text-neutral-700">
+          Someone is <strong>Active</strong> only after they open the invite link and sign in with Google, and Google
+          returns the <strong>same email address</strong> the invite was sent to. Until then they stay under{" "}
+          <strong>Pending invites</strong> above (or use <strong>Resend</strong> if the link expired).
+        </p>
         {users.length > 0 ? (
           <ul className="mt-4 divide-y divide-neutral-100">
             {users.map((u) => (
-              <li key={u.id} className="flex items-center justify-between py-3 first:pt-0">
-                <div className="flex items-center gap-2">
-                  <div>
+              <li key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-3 first:pt-0">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <div className="min-w-0">
                     <span className="font-medium text-neutral-900">{u.name || u.email}</span>
                     <span className="ml-2 text-sm text-neutral-700">{u.email}</span>
                   </div>
-                  <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600">
+                  <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600">
                     {u.role === "super_admin" ? "Super Admin" : "Project Manager"}
                   </span>
                 </div>
-                <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-                  Active
-                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  {u.status === "invited" ? (
+                    <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-900">
+                      Invited — sign in pending
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                      Active
+                    </span>
+                  )}
+                  {u.status === "active" && u.id !== currentUserId && (
+                    <button
+                      type="button"
+                      onClick={() => revokeMember(u.id)}
+                      disabled={!!loading}
+                      className="text-sm text-red-600 underline hover:text-red-800 disabled:opacity-50"
+                    >
+                      {loading === `revoke-member-${u.id}` ? "Revoking…" : "Revoke"}
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

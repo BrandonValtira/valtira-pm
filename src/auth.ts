@@ -6,6 +6,12 @@ import { getAppBaseUrl } from "@/lib/app-url";
 if (!process.env.NEXTAUTH_URL && process.env.VERCEL_URL) {
   process.env.NEXTAUTH_URL = `https://${process.env.VERCEL_URL}`;
 }
+if (!process.env.NEXTAUTH_URL && process.env.AUTH_URL) {
+  process.env.NEXTAUTH_URL = process.env.AUTH_URL.replace(/\/$/, "");
+}
+if (!process.env.NEXTAUTH_URL && process.env.NODE_ENV !== "production") {
+  process.env.NEXTAUTH_URL = "http://localhost:3000";
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
@@ -61,6 +67,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         .single();
 
       if (dbUser) {
+        if (dbUser.status === "revoked") {
+          const { data: pendingInvite } = await supabase
+            .from("invites")
+            .select("id")
+            .eq("email", userEmail)
+            .is("used_at", null)
+            .is("revoked_at", null)
+            .gt("expires_at", new Date().toISOString())
+            .limit(1)
+            .single();
+          if (!pendingInvite) return false;
+          await upsertUser(supabase, userWithEmail);
+          return true;
+        }
         if (dbUser.status !== "invited" && dbUser.status !== "active") return false;
         await upsertUser(supabase, userWithEmail);
         return true;

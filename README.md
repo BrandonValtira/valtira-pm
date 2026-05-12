@@ -69,13 +69,15 @@ See **[ROADMAP.md](./ROADMAP.md)** for Release 1 (core: approval flow, invite PM
 
 ## Launch checklist (Vercel + pm.valtira.net)
 
-When you deploy to Vercel and point the app to **pm.valtira.net**:
+**→ Full list of Vercel env vars:** **[docs/vercel-environment-variables.md](./docs/vercel-environment-variables.md)**
+
+When you deploy to Vercel and point the app to **pm.valtira.net** (or your domain):
 
 - **OAuth – redirect/callback URLs**  
   Add production URLs to each OAuth app so sign-in and integrations work:
   - **Google (NextAuth):** add `https://pm.valtira.net/api/auth/callback/google` (and any other NextAuth providers you use). Set `NEXTAUTH_URL` (or `AUTH_URL`) in Vercel to `https://pm.valtira.net`.
-  - **Harvest:** add `https://pm.valtira.net/api/auth/callback/harvest`.
+  - **Harvest:** add `https://pm.valtira.net/api/auth/callback/harvest`. If you see “This page isn’t working – id.getharvest.com sent an invalid response”, the redirect URL in [Harvest Developers](https://id.getharvest.com/developers) must match exactly (https, no trailing slash).
   - **Jira/Atlassian:** add `https://pm.valtira.net/api/auth/callback/jira`.
 
-- **Resend – DNS records**  
-  Update your DNS (at your domain provider for `valtira.net`) with the records Resend gives you for the domain you use as the "From" address (e.g. `reports@valtira.net` or `pm@valtira.net`). In [Resend Dashboard → Domains](https://resend.com/domains), add the domain and add the suggested MX, SPF, DKIM (or CNAME) records so report emails send and don’t land in spam.
+- **Resend (optional – invite emails only)**  
+  Report/approval emails are sent from the PM’s Gmail. Resend is only used for **invite emails** (inviting new PMs). If you use that, set `RESEND_API_KEY` (and optionally `RESEND_FROM`) in Vercel and add Resend’s DNS records for your from-domain so invites don’t land in spam.

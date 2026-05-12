@@ -15,12 +15,16 @@ export async function POST(req: Request) {
   const supabase = createAdminClient();
   const { data: invite, error: fetchError } = await supabase
     .from("invites")
-    .select("id, email, used_at")
+    .select("id, email, used_at, revoked_at, expires_at")
     .eq("token", token)
     .single();
 
   if (fetchError || !invite) return NextResponse.json({ error: "Invalid or expired invite" }, { status: 404 });
   if (invite.used_at) return NextResponse.json({ error: "Invite already used" }, { status: 400 });
+  if (invite.revoked_at) return NextResponse.json({ error: "This invite has been revoked" }, { status: 400 });
+  if (invite.expires_at && new Date(invite.expires_at) <= new Date()) {
+    return NextResponse.json({ error: "This invite has expired" }, { status: 400 });
+  }
   if (invite.email.toLowerCase() !== email) {
     return NextResponse.json({ error: "This invite was sent to a different email address" }, { status: 403 });
   }
@@ -31,6 +35,12 @@ export async function POST(req: Request) {
     .eq("id", invite.id);
 
   if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+
+  await supabase
+    .from("users")
+    .update({ status: "active", updated_at: new Date().toISOString() })
+    .eq("email", invite.email.toLowerCase())
+    .neq("role", "super_admin");
 
   return NextResponse.json({ ok: true });
 }

@@ -19,9 +19,19 @@ export async function PATCH(
     .eq("id", id)
     .is("used_at", null)
     .select("id, email")
-    .single();
+    .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Invite not found or already used" }, { status: 404 });
+
+  const email = (data.email ?? "").trim().toLowerCase();
+  if (email) {
+    await supabase
+      .from("users")
+      .update({ status: "revoked", updated_at: new Date().toISOString() })
+      .eq("email", email)
+      .neq("role", "super_admin");
+  }
+
   return NextResponse.json({ ok: true, invite: data });
 }

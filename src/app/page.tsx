@@ -4,8 +4,6 @@ import { GoogleSignInButton } from "@/components/google-sign-in-button";
 import { LogoBackground } from "@/components/logo-background";
 import { ValtiraLogo } from "@/components/valtira-logo";
 
-const TAGLINE = "Project management and client reporting assistant";
-
 export default async function HomePage() {
   const session = await auth();
   if (session?.user) redirect("/dashboard");
@@ -19,7 +17,9 @@ export default async function HomePage() {
             <ValtiraLogo height={48} />
           </div>
           <p className="mt-3 text-center text-sm leading-relaxed text-neutral-700">
-            {TAGLINE}
+            Project management and
+            <br />
+            client reporting assistant
           </p>
           <GoogleSignInButton className="mt-8 flex w-full items-center justify-center gap-3 rounded-xl bg-neutral-900 px-4 py-3.5 text-sm font-medium text-white shadow-sm transition hover:bg-neutral-800 active:scale-[0.99]" />
           <p className="mt-6 text-center text-xs text-neutral-600">

@@ -64,9 +64,51 @@ export async function getJiraRecentIssuesOAuth(
 ): Promise<JiraIssueSummary[]> {
   if (projectKeys.length === 0) return [];
   const jql = `project in (${projectKeys.map((k) => `"${k}"`).join(", ")}) ORDER BY updated DESC`;
-  const params = new URLSearchParams({ jql, maxResults: String(maxResults) });
+  const params = new URLSearchParams({
+    jql,
+    maxResults: String(maxResults),
+    fields: "summary,status,updated,priority",
+  });
   const res = await fetch(
-    `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/search?${params}`,
+    `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/search/jql?${params}`,
+    {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Jira API: ${res.status} ${text}`);
+  }
+  const data = (await res.json()) as { issues?: Array<{ key: string; fields: { summary?: string; status?: { name?: string }; updated?: string; priority?: { name?: string } } }> };
+  const issues = data.issues ?? [];
+  return issues.map((i) => ({
+    key: i.key,
+    summary: i.fields?.summary ?? "",
+    status: i.fields?.status?.name ?? "Unknown",
+    updated: i.fields?.updated ?? "",
+    priority: i.fields?.priority?.name,
+  }));
+}
+
+/** Fetch issues moved to Done in the past 30 days (OAuth). For concise project summary. */
+export async function getJiraDoneLastMonthOAuth(
+  cloudId: string,
+  accessToken: string,
+  projectKeys: string[],
+  maxResults = 50
+): Promise<JiraIssueSummary[]> {
+  if (projectKeys.length === 0) return [];
+  const jql = `project in (${projectKeys.map((k) => `"${k}"`).join(", ")}) AND statusCategory = Done AND updated >= -30d ORDER BY updated DESC`;
+  const params = new URLSearchParams({
+    jql,
+    maxResults: String(maxResults),
+    fields: "summary,status,updated,priority",
+  });
+  const res = await fetch(
+    `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/search/jql?${params}`,
     {
       headers: {
         Accept: "application/json",

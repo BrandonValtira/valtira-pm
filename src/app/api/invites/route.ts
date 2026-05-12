@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendInviteEmail } from "@/lib/invite-email";
+import { sendInviteEmailViaGmail } from "@/lib/gmail-send";
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
-  const sendResult = await sendInviteEmail(email, token);
+  const sendResult = await sendInviteEmailViaGmail(userId, email, token);
   if (sendResult.error) {
     return NextResponse.json({ error: `Invite created but email failed: ${sendResult.error}` }, { status: 502 });
   }

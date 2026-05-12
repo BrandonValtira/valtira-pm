@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getAppBaseUrl } from "@/lib/app-url";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -33,12 +34,12 @@ export async function GET(req: Request) {
     );
   }
 
-  const origin = new URL(req.url).origin;
-  const redirectUri = `${origin}/api/auth/callback/harvest`;
+  const baseUrl = getAppBaseUrl();
+  const redirectUri = `${baseUrl}/api/auth/callback/harvest`;
 
   const tokenRes = await fetch(HARVEST_TOKEN_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "Valtira-PM (https://pm.valtira.net)" },
     body: new URLSearchParams({
       code,
       client_id: clientId,
