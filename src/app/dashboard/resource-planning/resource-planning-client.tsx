@@ -741,8 +741,9 @@ export function ResourcePlanningClient() {
           <p className="font-medium text-amber-950">Harvest is not available for utilization</p>
           <p className="mt-2 text-amber-900/90">{harvestTeamLoad.message}</p>
           <p className="mt-3 text-amber-900/90">
-            Connect or refresh Harvest under <strong>Accounts</strong> on the Dashboard, then return here. The
-            utilization view needs the full Harvest team list so it does not show incomplete data.
+            The utilization view uses Harvest&apos;s full team list (via the super admin&apos;s Harvest connection when
+            available, otherwise yours). Connect or refresh Harvest under <strong>Accounts</strong> on the Dashboard,
+            then return here.
           </p>
           <Link
             href="/dashboard"
@@ -1708,6 +1709,8 @@ function AddAllocationForm({
   const [err, setErr] = useState("");
   const [harvestUsers, setHarvestUsers] = useState<{ id: number; name: string }[]>([]);
   const [harvestUsersLoading, setHarvestUsersLoading] = useState(false);
+  const [harvestUsersError, setHarvestUsersError] = useState("");
+  const [harvestUsersRetryKey, setHarvestUsersRetryKey] = useState(0);
 
   useEffect(() => {
     if (initialProject !== undefined) setProjectName(initialProject);
@@ -1715,15 +1718,49 @@ function AddAllocationForm({
 
   useEffect(() => {
     if (!isAddResource) return;
+    let cancelled = false;
     setHarvestUsersLoading(true);
-    fetch("/api/integrations/harvest/users")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.users) setHarvestUsers(data.users);
-      })
-      .catch(() => setHarvestUsers([]))
-      .finally(() => setHarvestUsersLoading(false));
-  }, [isAddResource]);
+    setHarvestUsersError("");
+    (async () => {
+      try {
+        const res = await fetch("/api/integrations/harvest/users");
+        const data: { users?: { id: number; name: string }[]; error?: string } = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          setHarvestUsers([]);
+          const fromBody =
+            typeof data.error === "string" && data.error.trim() ? data.error.trim() : "";
+          setHarvestUsersError(
+            fromBody ||
+              (res.status === 401
+                ? "You need to be signed in to load Harvest."
+                : "Could not load Harvest people for this form.")
+          );
+          return;
+        }
+        if (data.error) {
+          setHarvestUsers([]);
+          setHarvestUsersError(
+            typeof data.error === "string" && data.error.trim()
+              ? data.error.trim()
+              : "Could not load Harvest people for this form."
+          );
+          return;
+        }
+        setHarvestUsers(Array.isArray(data.users) ? data.users : []);
+      } catch {
+        if (!cancelled) {
+          setHarvestUsers([]);
+          setHarvestUsersError("Network error while loading Harvest. Check your connection and try again.");
+        }
+      } finally {
+        if (!cancelled) setHarvestUsersLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAddResource, harvestUsersRetryKey]);
 
   async function submit() {
     const name = resourceName.trim();
@@ -1765,6 +1802,18 @@ function AddAllocationForm({
           {isAddResource ? "Select a Harvest user and role. They’ll be added to the project; you can then add entries in the table." : "Resource · Role · Project · Week · FTE"}
         </p>
         {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
+        {harvestUsersError && (
+          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            <p>{harvestUsersError}</p>
+            <button
+              type="button"
+              className="mt-2 text-xs font-medium text-amber-900 underline hover:no-underline"
+              onClick={() => setHarvestUsersRetryKey((k) => k + 1)}
+            >
+              Retry
+            </button>
+          </div>
+        )}
         <div className="mt-3 space-y-2">
           <div>
             <label className="block text-xs font-medium text-neutral-600">Name</label>
@@ -1773,9 +1822,11 @@ function AddAllocationForm({
                 value={resourceName}
                 onChange={(e) => setResourceName(e.target.value)}
                 className="mt-0.5 w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
-                disabled={harvestUsersLoading}
+                disabled={harvestUsersLoading || Boolean(harvestUsersError)}
               >
-                <option value="">Select from Harvest</option>
+                <option value="">
+                  {harvestUsersLoading ? "Loading Harvest…" : harvestUsersError ? "Harvest unavailable" : "Select from Harvest"}
+                </option>
                 {harvestUsers.map((u) => (
                   <option key={u.id} value={u.name}>{u.name}</option>
                 ))}
@@ -1870,7 +1921,11 @@ function AddAllocationForm({
           <button
             type="button"
             onClick={submit}
-            disabled={saving || (isAddResource && harvestUsersLoading)}
+            disabled={
+              saving ||
+              (isAddResource &&
+                (harvestUsersLoading || Boolean(harvestUsersError) || harvestUsers.length === 0))
+            }
             className="rounded bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
           >
             {saving ? "Adding…" : "Add"}

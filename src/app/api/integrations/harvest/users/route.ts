@@ -1,43 +1,87 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ensureValidHarvestToken } from "@/lib/harvest-oauth-refresh";
 import { getHarvestUsers } from "@/lib/harvest";
 import { NextResponse } from "next/server";
 
-const HARVEST_TOKEN_URL = "https://id.getharvest.com/api/v2/oauth2/token";
+type HarvestIntegrationRow = {
+  id: string;
+  access_token: string | null;
+  refresh_token: string | null;
+  expires_at: string | null;
+  provider_metadata: unknown;
+};
 
-async function ensureValidHarvestToken(
+function getAccountId(meta: unknown): string | undefined {
+  const v = (meta as { account_id?: string })?.account_id;
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
+
+/** Prefer env-matched super admin, else any active super_admin (first row). */
+async function resolveCanonicalSuperAdminUserId(
+  supabase: ReturnType<typeof createAdminClient>
+): Promise<string | null> {
+  const envEmail =
+    process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase() ||
+    process.env.AUTH_SUPER_ADMIN_EMAIL?.trim().toLowerCase() ||
+    null;
+  const { data: admins } = await supabase
+    .from("users")
+    .select("id, email")
+    .eq("role", "super_admin")
+    .eq("status", "active");
+  if (!admins?.length) return null;
+  if (envEmail) {
+    const match = admins.find(
+      (a) => typeof a.email === "string" && a.email.trim().toLowerCase() === envEmail
+    );
+    if (match) return match.id;
+  }
+  return admins[0].id;
+}
+
+async function fetchHarvestIntegration(
   supabase: ReturnType<typeof createAdminClient>,
-  integration: { access_token: string; refresh_token: string | null; expires_at: string | null; id: string }
-): Promise<string> {
-  const expiresAt = integration.expires_at ? new Date(integration.expires_at).getTime() : 0;
-  const bufferMs = 5 * 60 * 1000;
-  if (integration.refresh_token && Date.now() >= expiresAt - bufferMs) {
-    const res = await fetch(HARVEST_TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        refresh_token: integration.refresh_token,
-        client_id: process.env.HARVEST_CLIENT_ID!,
-        client_secret: process.env.HARVEST_CLIENT_SECRET!,
-        grant_type: "refresh_token",
-      }),
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { access_token: string; refresh_token?: string; expires_in: number };
-      const newExpires = new Date(Date.now() + data.expires_in * 1000).toISOString();
-      await supabase
-        .from("user_integrations")
-        .update({
-          access_token: data.access_token,
-          refresh_token: data.refresh_token ?? integration.refresh_token,
-          expires_at: newExpires,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", integration.id);
-      return data.access_token;
+  forUserId: string
+): Promise<HarvestIntegrationRow | null> {
+  const { data } = await supabase
+    .from("user_integrations")
+    .select("id, access_token, refresh_token, expires_at, provider_metadata")
+    .eq("user_id", forUserId)
+    .eq("provider", "harvest")
+    .maybeSingle();
+  return (data as HarvestIntegrationRow | null) ?? null;
+}
+
+function isCompleteHarvestIntegration(
+  row: HarvestIntegrationRow | null
+): row is HarvestIntegrationRow & { access_token: string } {
+  if (!row?.access_token) return false;
+  return Boolean(getAccountId(row.provider_metadata));
+}
+
+/**
+ * Team directory: use an active super admin’s Harvest when connected (full org list for all PMs),
+ * otherwise fall back to the signed-in user’s Harvest.
+ */
+async function resolveHarvestIntegrationForDirectory(
+  supabase: ReturnType<typeof createAdminClient>,
+  sessionUserId: string
+): Promise<{ integration: HarvestIntegrationRow & { access_token: string }; accountId: string } | null> {
+  const superAdminId = await resolveCanonicalSuperAdminUserId(supabase);
+  const ordered: string[] = [];
+  if (superAdminId) ordered.push(superAdminId);
+  if (!ordered.includes(sessionUserId)) ordered.push(sessionUserId);
+  for (const uid of ordered) {
+    const row = await fetchHarvestIntegration(supabase, uid);
+    if (isCompleteHarvestIntegration(row)) {
+      return {
+        integration: row,
+        accountId: getAccountId(row.provider_metadata)!,
+      };
     }
   }
-  return integration.access_token;
+  return null;
 }
 
 export async function GET() {
@@ -47,27 +91,24 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const supabase = createAdminClient();
-  const { data: integration } = await supabase
-    .from("user_integrations")
-    .select("id, access_token, refresh_token, expires_at, provider_metadata")
-    .eq("user_id", userId)
-    .eq("provider", "harvest")
-    .single();
-  if (!integration?.access_token) {
+  const resolved = await resolveHarvestIntegrationForDirectory(supabase, userId);
+  if (!resolved) {
     return NextResponse.json(
-      { error: "Harvest not connected. Sign in with Harvest in Settings." },
+      {
+        error:
+          "Harvest is not connected for the team directory. A super admin should connect Harvest in Settings, or connect your own Harvest account.",
+      },
       { status: 400 }
     );
   }
-  const accountId = (integration.provider_metadata as { account_id?: string })?.account_id;
-  if (!accountId) {
-    return NextResponse.json(
-      { error: "Harvest account ID missing. Reconnect in Settings." },
-      { status: 400 }
-    );
-  }
+  const { integration, accountId } = resolved;
   try {
-    const accessToken = await ensureValidHarvestToken(supabase, integration);
+    const accessToken = await ensureValidHarvestToken(supabase, {
+      id: integration.id,
+      access_token: integration.access_token,
+      refresh_token: integration.refresh_token,
+      expires_at: integration.expires_at,
+    });
     const users = await getHarvestUsers(accountId, accessToken);
     const list = users.map((u) => ({
       id: u.id,
