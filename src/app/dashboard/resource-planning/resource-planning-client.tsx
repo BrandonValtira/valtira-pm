@@ -307,10 +307,10 @@ export function ResourcePlanningClient() {
 
   const projectNames = Array.from(new Set(allocations.map((a) => a.project_name))).sort();
   const getDisplayTitle = (name: string) => projectMeta[name]?.display_title?.trim() || name;
-  function getLinkedProjectsLabel(name: string): { label: string; tooltip?: string } {
+  function getLinkedProjectsLabel(name: string): { label: string; tooltip?: string; unlinked?: boolean } {
     const ids = projectMeta[name]?.harvest_project_ids ?? [];
     const storedNames = projectMeta[name]?.harvest_project_names ?? [];
-    if (ids.length === 0) return { label: "" };
+    if (ids.length === 0) return { label: "Not linked to Harvest", unlinked: true };
     const names = ids.map((id, i) => storedNames[i] ?? harvestProjectIdToName[id]).filter((n): n is string => Boolean(n));
     if (ids.length === 1) return { label: names[0] ?? "1 project linked" };
     const tooltipText = names.length > 0 ? names.map((n) => `• ${n}`).join("\n") : `${ids.length} projects linked`;
@@ -865,12 +865,17 @@ export function ResourcePlanningClient() {
                     <h2 className="text-sm font-semibold text-neutral-900 truncate" title={(() => { const { label, tooltip } = getLinkedProjectsLabel(projectName); return [getDisplayTitle(projectName), label ? (tooltip ?? label) : null].filter(Boolean).join(" · "); })()}>
                       <span className="text-neutral-800">{getDisplayTitle(projectName)}</span>
                       {(() => {
-                        const { label, tooltip } = getLinkedProjectsLabel(projectName);
+                        const { label, tooltip, unlinked } = getLinkedProjectsLabel(projectName);
                         if (!label) return null;
                         return (
                           <>
                             <span className="text-neutral-400"> · </span>
-                            <span className="text-neutral-600" title={tooltip ?? undefined}>{label}</span>
+                            <span
+                              className={unlinked ? "text-neutral-500 italic" : "text-neutral-600"}
+                              title={tooltip ?? (unlinked ? "Link Harvest projects from Edit project when the SOW is signed." : undefined)}
+                            >
+                              {label}
+                            </span>
                           </>
                         );
                       })()}
@@ -1355,14 +1360,16 @@ function AddProjectFromHarvestModal({
   }
 
   async function handleAdd() {
-    if (selectedProjects.length === 0) return;
+    const projectName = displayName.trim();
+    if (!projectName) return;
+    if (existingSet.has(projectName.toLowerCase())) {
+      setError("A project with this name already exists.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
       const weekStart = getWeekStart(new Date());
-      const first = selectedProjects[0];
-      const projectName = displayName.trim() || (first?.name ?? "");
-      if (!projectName) return;
       const res = await fetch("/api/resource-planning/allocations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1377,12 +1384,13 @@ function AddProjectFromHarvestModal({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Failed to add project");
       const clientByProject: Record<string, string> = {};
+      const first = selectedProjects[0];
       if (first?.client?.name) clientByProject[projectName] = first.client.name;
       await fetch(`/api/resource-planning/projects/${encodeURIComponent(projectName)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          display_title: displayName.trim() || null,
+          display_title: projectName,
           harvest_project_ids: selectedProjects.map((p) => p.id),
           harvest_project_names: selectedProjects.map((p) => p.name),
         }),
@@ -1395,31 +1403,37 @@ function AddProjectFromHarvestModal({
     }
   }
 
+  const canAdd = displayName.trim().length > 0 && !saving;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-2xl rounded-xl border border-neutral-200 bg-white p-4 shadow-xl">
         <h3 className="text-base font-semibold text-neutral-900">Add new project</h3>
-        <p className="mt-0.5 text-xs text-neutral-500">Enter a display name, then select a client and one or more Harvest projects to link.</p>
+        <p className="mt-0.5 text-xs text-neutral-500">
+          Enter a display name to plan future work. Link a client and Harvest projects now, or add them later from Edit project after the SOW is signed.
+        </p>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-        {loading ? (
-          <p className="mt-3 text-sm text-neutral-500">Loading Harvest projects…</p>
-        ) : allFetched.length === 0 ? (
-          <p className="mt-3 text-sm text-neutral-500">
-            No active Harvest projects, or Harvest is not connected. Connect in Settings.
-          </p>
-        ) : (
-          <>
-            <div className="mt-3">
-              <label className="block text-xs font-medium text-neutral-600">Display name</label>
-              <input
-                type="text"
-                value={displayName}
-                onChange={(e) => onDisplayNameChange(e.target.value)}
-                placeholder="e.g. Q1 Support"
-                className="mt-0.5 w-full rounded border border-neutral-300 px-2.5 py-1.5 text-sm"
-              />
-            </div>
-            <div className="mt-3">
+        <div className="mt-3">
+          <label className="block text-xs font-medium text-neutral-600">Display name</label>
+          <input
+            type="text"
+            value={displayName}
+            onChange={(e) => onDisplayNameChange(e.target.value)}
+            placeholder="e.g. Q1 Support"
+            className="mt-0.5 w-full rounded border border-neutral-300 px-2.5 py-1.5 text-sm"
+          />
+        </div>
+        <div className="mt-4 border-t border-neutral-100 pt-3">
+          <p className="text-xs font-medium text-neutral-700">Link Harvest projects (optional)</p>
+          {loading ? (
+            <p className="mt-2 text-sm text-neutral-500">Loading Harvest projects…</p>
+          ) : allFetched.length === 0 ? (
+            <p className="mt-2 text-sm text-neutral-500">
+              No active Harvest projects, or Harvest is not connected. You can still add this project and link Harvest later from Edit project.
+            </p>
+          ) : (
+            <>
+            <div className="mt-2">
               <label className="block text-xs font-medium text-neutral-600">Client</label>
               <select
                 value={selectedClient ?? ""}
@@ -1483,8 +1497,9 @@ function AddProjectFromHarvestModal({
                 {debugInfo}
               </p>
             )}
-          </>
-        )}
+            </>
+          )}
+        </div>
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
@@ -1496,10 +1511,14 @@ function AddProjectFromHarvestModal({
           <button
             type="button"
             onClick={handleAdd}
-            disabled={selectedProjects.length === 0 || saving}
+            disabled={!canAdd}
             className="rounded-lg bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
           >
-            {saving ? "Adding…" : selectedProjects.length ? `Add (${selectedProjects.length} project${selectedProjects.length === 1 ? "" : "s"})` : "Add"}
+            {saving
+              ? "Adding…"
+              : selectedProjects.length
+                ? `Add (${selectedProjects.length} Harvest project${selectedProjects.length === 1 ? "" : "s"})`
+                : "Add project"}
           </button>
         </div>
       </div>
@@ -1603,7 +1622,9 @@ function EditProjectModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-2xl rounded-xl border border-neutral-200 bg-white p-4 shadow-xl">
         <h3 className="text-base font-semibold text-neutral-900">Edit project</h3>
-        <p className="mt-0.5 text-xs text-neutral-500">Update the display name and which Harvest projects are linked.</p>
+        <p className="mt-0.5 text-xs text-neutral-500">
+          Update the display name and link Harvest projects when ready. Leave Harvest unlinked for draft or future work.
+        </p>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         <div className="mt-3">
           <label className="block text-xs font-medium text-neutral-600">Display name</label>
