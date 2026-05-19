@@ -135,9 +135,18 @@ if (!calRes.ok) {
 const calData = JSON.parse(calText);
 const items = calData.items ?? [];
 console.log("\nCalendar events in range:", items.length);
+function personFromSummary(summary) {
+  let s = (summary ?? "").trim();
+  if (!s) return "";
+  const dashParts = s.split(/\s+[-–—]\s+/);
+  if (dashParts.length > 1 && dashParts[0]?.trim()) return dashParts[0].trim();
+  return s.replace(/[-–—]?\s*(ooo|pto|out\s*of\s*office|vacation|000)\s*$/i, "").trim();
+}
+
 for (const ev of items.slice(0, 15)) {
   const start = ev.start?.date ?? ev.start?.dateTime ?? "?";
-  console.log(`  - ${JSON.stringify(ev.summary ?? "(no title)")} | ${start}`);
+  const person = personFromSummary(ev.summary);
+  console.log(`  - ${JSON.stringify(ev.summary ?? "(no title)")} → "${person}" | ${start}`);
 }
 if (items.length > 15) console.log(`  ... and ${items.length - 15} more`);
 
@@ -148,3 +157,18 @@ const allocRows = await supabaseGet(
 const resourceNames = [...new Set(allocRows.map((r) => r.resource_name).filter(Boolean))].sort();
 console.log("\nAllocation resource names:", resourceNames.length);
 console.log(resourceNames.slice(0, 10).join(", ") + (resourceNames.length > 10 ? "..." : ""));
+
+const brandonRes = resourceNames.find((n) => /brandon/i.test(n));
+if (brandonRes) {
+  const calNames = items.map((ev) => personFromSummary(ev.summary)).filter(Boolean);
+  const brandonEvents = items.filter((ev) => /brandon/i.test(personFromSummary(ev.summary)));
+  console.log("\nBrandon resource name:", brandonRes);
+  console.log("Brandon calendar events:", brandonEvents.length);
+  for (const ev of brandonEvents) {
+    const start = ev.start?.date ?? ev.start?.dateTime?.slice(0, 10);
+    const d = new Date((start ?? "") + "T12:00:00Z");
+    d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+    const ws = d.toISOString().slice(0, 10);
+    console.log(`  week_start ${ws} (event ${start}) summary: ${ev.summary}`);
+  }
+}

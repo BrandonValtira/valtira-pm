@@ -4,6 +4,25 @@ export type ParsedPersonName = {
   lastInitial: string | null;
 };
 
+/**
+ * Person name from a Vacation/OOO calendar event title (e.g. "Brandon - OOO" → "Brandon").
+ * Event title is only used to identify who is out, not whether it counts as vacation.
+ */
+export function calendarPersonNameFromEventSummary(summary: string): string {
+  let s = summary.trim();
+  if (!s) return "";
+  const dashParts = s.split(/\s+[-–—]\s+/);
+  if (dashParts.length > 1 && dashParts[0]?.trim()) {
+    s = dashParts[0].trim();
+  } else {
+    s = s
+      .replace(/[-–—]?\s*(ooo|pto|out\s*of\s*office|vacation|000)\s*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  return s;
+}
+
 /** First name = all tokens except the last; single token = whole name. */
 export function parsePersonName(full: string): ParsedPersonName {
   const parts = full.trim().split(/\s+/).filter(Boolean);

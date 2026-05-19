@@ -2,10 +2,34 @@
 
 import Link from "next/link";
 import { displayFirstName } from "@/lib/vacation-name-match";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-const VACATION_CELL_RING = "ring-2 ring-inset ring-red-500";
+const VACATION_EMOJI = "🌴";
+
+function AllocationWithVacation({
+  children,
+  onVacation,
+  vacationTitle,
+}: {
+  children: ReactNode;
+  onVacation: boolean;
+  vacationTitle?: string;
+}) {
+  if (!onVacation) return <>{children}</>;
+  return (
+    <span className="inline-flex items-center justify-center gap-0.5">
+      <span>{children}</span>
+      <span
+        className="text-[10px] leading-none"
+        title={vacationTitle}
+        aria-label={vacationTitle ?? "Vacation planned"}
+      >
+        {VACATION_EMOJI}
+      </span>
+    </span>
+  );
+}
 
 type Allocation = {
   id: string;
@@ -962,10 +986,14 @@ export function ResourcePlanningClient() {
                         return (
                           <td
                             key={w}
-                            title={onVacation ? vacationTooltipMessage(resource_name) : undefined}
-                            className={`min-w-[5rem] w-[5rem] border-r border-neutral-200 px-0.5 py-2 text-center last:border-r-0 ${color} ${onVacation ? VACATION_CELL_RING : ""}`}
+                            className={`min-w-[5rem] w-[5rem] border-r border-neutral-200 px-0.5 py-2 text-center last:border-r-0 ${color}`}
                           >
-                            {formatAllocationDisplay(sum, displayUnit)}
+                            <AllocationWithVacation
+                              onVacation={onVacation}
+                              vacationTitle={vacationTooltipMessage(resource_name)}
+                            >
+                              {formatAllocationDisplay(sum, displayUnit)}
+                            </AllocationWithVacation>
                           </td>
                         );
                       })}
@@ -1178,7 +1206,7 @@ export function ResourcePlanningClient() {
                               return (
                                 <td
                                   key={w}
-                                  className={`relative min-w-[5rem] w-[5rem] border-r border-neutral-200 text-center last:border-r-0 ${color} ${isEditing ? "p-0" : "px-0.5 py-0.5"} ${onVacation ? VACATION_CELL_RING : ""}`}
+                                  className={`relative min-w-[5rem] w-[5rem] border-r border-neutral-200 text-center last:border-r-0 ${color} ${isEditing ? "p-0" : "px-0.5 py-0.5"}`}
                                   onMouseEnter={(e) => {
                                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                                     setHoverCell({ rowKey, weekStart: w });
@@ -1249,7 +1277,12 @@ export function ResourcePlanningClient() {
                                       }}
                                       className="block w-full rounded px-0.5 py-0.5 hover:ring-1 hover:ring-neutral-400"
                                     >
-                                      {alloc ? formatAllocationDisplay(Number(alloc.fte), displayUnit) : "—"}
+                                      <AllocationWithVacation
+                                        onVacation={onVacation}
+                                        vacationTitle={vacationTooltipMessage(resource_name)}
+                                      >
+                                        {alloc ? formatAllocationDisplay(Number(alloc.fte), displayUnit) : "—"}
+                                      </AllocationWithVacation>
                                     </button>
                                   )}
                                 </td>
@@ -1302,7 +1335,7 @@ export function ResourcePlanningClient() {
           <span className="resource-planning-util-cell rounded bg-orange-100 px-1.5 py-0.5">Low</span> 1–39%
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="rounded px-1.5 py-0.5 ring-2 ring-inset ring-red-500 bg-white">Vacation</span> planned (Google calendar)
+          <span aria-hidden>{VACATION_EMOJI}</span> Vacation planned (Google calendar)
         </span>
       </div>
 

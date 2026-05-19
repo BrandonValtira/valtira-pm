@@ -1,4 +1,7 @@
-import { matchCalendarNameToResource } from "@/lib/vacation-name-match";
+import {
+  calendarPersonNameFromEventSummary,
+  matchCalendarNameToResource,
+} from "@/lib/vacation-name-match";
 
 type CalendarEvent = {
   summary?: string;
@@ -133,7 +136,7 @@ export async function fetchVacationWeeksByResource(
   for (const event of items) {
     const range = eventDateRange(event);
     if (!range) continue;
-    const calendarName = (event.summary ?? "").trim();
+    const calendarName = calendarPersonNameFromEventSummary(event.summary ?? "");
     if (!calendarName) continue;
     calendarNames.add(calendarName);
     const eventWeeks = weeksWithBusinessDayOverlap(range.start, range.end, weekStarts);
