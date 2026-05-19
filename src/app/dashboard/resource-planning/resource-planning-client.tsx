@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { displayFirstName } from "@/lib/vacation-name-match";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+
+const VACATION_CELL_RING = "ring-2 ring-inset ring-red-500";
 
 type Allocation = {
   id: string;
@@ -100,7 +103,42 @@ function editValueFromFte(fte: number, unit: DisplayUnit): string {
   return Number.isInteger(pct) ? String(pct) : String(Math.round(pct * 10) / 10);
 }
 
-/** Lowercase full names hidden from the Utilization tab (match Harvest “First Last”). */
+function DisplayUnitSelect({
+  value,
+  onChange,
+}: {
+  value: DisplayUnit;
+  onChange: (unit: DisplayUnit) => void;
+}) {
+  return (
+    <div className="relative shrink-0">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as DisplayUnit)}
+        aria-label="Display units"
+        title="100% = 40 hours"
+        className="appearance-none rounded-lg border border-neutral-300 bg-white pl-3 pr-8 py-2 text-sm text-neutral-900 focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+      >
+        <option value="hours">Hours</option>
+        <option value="percent">Percentage</option>
+      </select>
+      <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-neutral-500">
+        <svg viewBox="0 0 20 20" aria-hidden className="h-4 w-4">
+          <path
+            d="M5.25 7.5L10 12.25L14.75 7.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+    </div>
+  );
+}
+
+/** Lowercase full names hidden from the Utilization tab (match Harvest "First Last"). */
 const UTILIZATION_EXCLUDED_NAME_LOWER = new Set(["david bagley", "stacey roelofs"]);
 
 function isUtilizationExcludedName(name: string): boolean {
@@ -130,6 +168,7 @@ export function ResourcePlanningClient() {
     listForWeek: Allocation[];
     left: number;
     top: number;
+    vacationPlanned?: boolean;
   } | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [addForProject, setAddForProject] = useState<string | null>(null);
@@ -175,6 +214,9 @@ export function ResourcePlanningClient() {
   const [addProjectDisplayNameDraft, setAddProjectDisplayNameDraft] = useState("");
   /** Harvest directory for Utilization tab; errors must not fall back to allocation-only names. */
   const [harvestTeamLoad, setHarvestTeamLoad] = useState<HarvestTeamLoadState>({ status: "loading" });
+  /** resource_name → week_start (Sunday) with vacation from Google calendar */
+  const [vacationWeeksByResource, setVacationWeeksByResource] = useState<Record<string, string[]>>({});
+  const [vacationNotice, setVacationNotice] = useState<string | null>(null);
 
   const weekEnd = addWeeks(weekStart, WEEKS_VIEW - 1);
   const oneMonthFromNow = addWeeks(getWeekStart(today), 4);
@@ -237,6 +279,54 @@ export function ResourcePlanningClient() {
   useEffect(() => {
     fetchMeta();
   }, [fetchMeta]);
+
+  const fetchVacation = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/resource-planning/vacation?weekStart=${encodeURIComponent(weekStart)}&weekEnd=${encodeURIComponent(weekEndForFetch)}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (data.weeksByResource && typeof data.weeksByResource === "object") {
+        setVacationWeeksByResource(data.weeksByResource as Record<string, string[]>);
+      }
+      if (typeof data.message === "string" && data.message.trim()) {
+        const needsAttention =
+          data.configured === false ||
+          data.connected === false ||
+          data.needsReconnect === true ||
+          data.calendarApiDisabled === true ||
+          !res.ok;
+        setVacationNotice(needsAttention ? data.message.trim() : null);
+      } else if (res.ok) {
+        setVacationNotice(null);
+      }
+    } catch {
+      setVacationNotice("Could not load vacation calendar. Check your connection and try again.");
+    }
+  }, [weekStart, weekEndForFetch]);
+
+  useEffect(() => {
+    fetchVacation();
+  }, [fetchVacation]);
+
+  const vacationWeekSetByResource = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const [name, weeks] of Object.entries(vacationWeeksByResource)) {
+      map.set(name, new Set(weeks));
+    }
+    return map;
+  }, [vacationWeeksByResource]);
+
+  const hasVacationWeek = useCallback(
+    (resourceName: string, week: string) => vacationWeekSetByResource.get(resourceName)?.has(week) ?? false,
+    [vacationWeekSetByResource]
+  );
+
+  const vacationTooltipMessage = useCallback(
+    (resourceName: string) =>
+      `${displayFirstName(resourceName)} has time off this week (vacation calendar). Review their allocations.`,
+    []
+  );
 
   useEffect(() => {
     try {
@@ -664,7 +754,6 @@ export function ResourcePlanningClient() {
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <div className="flex items-center justify-between gap-2 pb-3 flex-wrap">
-        <div className="flex items-center gap-2 shrink-0">
         <div role="group" aria-label="View mode" className="shrink-0">
           <div className="inline-flex rounded-full border border-neutral-300 bg-white text-sm overflow-hidden">
             <button
@@ -683,27 +772,8 @@ export function ResourcePlanningClient() {
             </button>
           </div>
         </div>
-          <div role="group" aria-label="Display units" className="shrink-0">
-            <div className="inline-flex rounded-full border border-neutral-300 bg-white text-sm overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setDisplayUnit("hours")}
-                className={`rounded-l-full px-3 py-2 font-medium transition-colors ${displayUnit === "hours" ? "bg-neutral-900 text-white" : "text-neutral-600 hover:bg-neutral-100"}`}
-              >
-                Hours
-              </button>
-              <button
-                type="button"
-                onClick={() => setDisplayUnit("percent")}
-                className={`rounded-r-full px-3 py-2 font-medium transition-colors ${displayUnit === "percent" ? "bg-neutral-900 text-white" : "text-neutral-600 hover:bg-neutral-100"}`}
-                title="100% = 40 hours"
-              >
-                %
-              </button>
-            </div>
-          </div>
-        </div>
         {viewMode === "individual" && (
+          <div className="flex items-center gap-2 shrink-0">
           <div role="group" aria-label="Filter by utilization" className="relative shrink-0">
             <select
               value={utilizationFilter}
@@ -728,10 +798,12 @@ export function ResourcePlanningClient() {
               </svg>
             </span>
           </div>
+            <DisplayUnitSelect value={displayUnit} onChange={setDisplayUnit} />
+          </div>
         )}
         {viewMode === "calendar" && (
           <>
-            <div className="flex-1 flex justify-center min-w-0">
+            <div className="flex-1 flex justify-center items-center gap-2 min-w-0">
               <div className="relative w-full max-w-[268px] md:max-w-[350px]">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" aria-hidden>
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -783,6 +855,7 @@ export function ResourcePlanningClient() {
                   </div>
                 )}
               </div>
+              <DisplayUnitSelect value={displayUnit} onChange={setDisplayUnit} />
             </div>
             <button
               type="button"
@@ -797,6 +870,24 @@ export function ResourcePlanningClient() {
 
       {error && (
         <p className="mt-2 text-sm text-red-600">{error}</p>
+      )}
+
+      {vacationNotice && (
+        <div
+          className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+          role="status"
+        >
+          <span className="font-medium">Vacation calendar: </span>
+          {vacationNotice}
+          {(vacationNotice.includes("Reconnect") || vacationNotice.includes("not connected")) && (
+            <>
+              {" "}
+              <Link href="/dashboard/settings" className="font-medium underline hover:text-amber-900">
+                Open Settings
+              </Link>
+            </>
+          )}
+        </div>
       )}
 
       {loading ? (
@@ -867,10 +958,12 @@ export function ResourcePlanningClient() {
                       {weekStarts.map((w, i) => {
                         const sum = totalByWeek[i] ?? 0;
                         const color = getUtilizationColor(resource_name, w);
+                        const onVacation = hasVacationWeek(resource_name, w);
                         return (
                           <td
                             key={w}
-                            className={`min-w-[5rem] w-[5rem] border-r border-neutral-200 px-0.5 py-2 text-center last:border-r-0 ${color}`}
+                            title={onVacation ? vacationTooltipMessage(resource_name) : undefined}
+                            className={`min-w-[5rem] w-[5rem] border-r border-neutral-200 px-0.5 py-2 text-center last:border-r-0 ${color} ${onVacation ? VACATION_CELL_RING : ""}`}
                           >
                             {formatAllocationDisplay(sum, displayUnit)}
                           </td>
@@ -1081,10 +1174,11 @@ export function ResourcePlanningClient() {
                               const color = getUtilizationColor(resource_name, w);
                               const listForWeek = allocationsForResourceWeek(resource_name, w);
                               const total = listForWeek.reduce((s, a) => s + Number(a.fte), 0);
+                              const onVacation = hasVacationWeek(resource_name, w);
                               return (
                                 <td
                                   key={w}
-                                  className={`relative min-w-[5rem] w-[5rem] border-r border-neutral-200 text-center last:border-r-0 ${color} ${isEditing ? "p-0" : "px-0.5 py-0.5"}`}
+                                  className={`relative min-w-[5rem] w-[5rem] border-r border-neutral-200 text-center last:border-r-0 ${color} ${isEditing ? "p-0" : "px-0.5 py-0.5"} ${onVacation ? VACATION_CELL_RING : ""}`}
                                   onMouseEnter={(e) => {
                                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                                     setHoverCell({ rowKey, weekStart: w });
@@ -1094,6 +1188,7 @@ export function ResourcePlanningClient() {
                                       listForWeek,
                                       left: rect.left,
                                       top: rect.bottom + 4,
+                                      vacationPlanned: onVacation,
                                     });
                                   }}
                                   onMouseLeave={() => {
@@ -1206,6 +1301,9 @@ export function ResourcePlanningClient() {
         <span className="inline-flex items-center gap-1">
           <span className="resource-planning-util-cell rounded bg-orange-100 px-1.5 py-0.5">Low</span> 1–39%
         </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="rounded px-1.5 py-0.5 ring-2 ring-inset ring-red-500 bg-white">Vacation</span> planned (Google calendar)
+        </span>
       </div>
 
       {toast === "saved" && (
@@ -1233,6 +1331,11 @@ export function ResourcePlanningClient() {
               />
               {tooltipState.resource_name}
             </div>
+            {tooltipState.vacationPlanned && (
+              <p className="mt-1 font-medium leading-snug text-red-700">
+                {vacationTooltipMessage(tooltipState.resource_name)}
+              </p>
+            )}
             <div className="mt-0.5 text-neutral-600">
               Total: {formatAllocationDisplay(tooltipState.total, displayUnit)}
             </div>

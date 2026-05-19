@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 const GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+const CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 
 export async function GET(req: Request) {
   const session = await auth();
@@ -32,7 +33,10 @@ export async function GET(req: Request) {
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", ["openid", "email", "profile", DRIVE_SCOPE, GMAIL_SEND_SCOPE].join(" "));
+  url.searchParams.set(
+    "scope",
+    ["openid", "email", "profile", DRIVE_SCOPE, GMAIL_SEND_SCOPE, CALENDAR_READONLY_SCOPE].join(" ")
+  );
   url.searchParams.set("state", state);
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
