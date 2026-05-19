@@ -68,6 +68,37 @@ const WEEKS_VIEW = 52;
 const ROW_KEY_SEP = "\u0001";
 const FULL_PCT = 0.8;
 const PARTIAL_PCT = 0.4;
+const OVER_PCT = 1;
+const HOURS_PER_FULL_FTE = 40;
+
+type DisplayUnit = "percent" | "hours";
+
+function formatAllocationDisplay(fte: number, unit: DisplayUnit): string {
+  if (!(fte > 0)) return "—";
+  if (unit === "hours") {
+    const hours = fte * HOURS_PER_FULL_FTE;
+    return Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
+  }
+  const pct = fte * 100;
+  return `${Number.isInteger(pct) ? pct : pct.toFixed(pct % 1 === 0 ? 0 : 1)}%`;
+}
+
+function fteFromDisplayInput(raw: string, unit: DisplayUnit): number {
+  const n = parseFloat(raw) || 0;
+  if (unit === "hours") return Math.min(1, Math.max(0, n / HOURS_PER_FULL_FTE));
+  const fte = n > 1 ? n / 100 : n;
+  return Math.min(1, Math.max(0, fte));
+}
+
+function editValueFromFte(fte: number, unit: DisplayUnit): string {
+  if (!(fte > 0)) return "";
+  if (unit === "hours") {
+    const hours = fte * HOURS_PER_FULL_FTE;
+    return Number.isInteger(hours) ? String(hours) : String(Math.round(hours * 10) / 10);
+  }
+  const pct = fte * 100;
+  return Number.isInteger(pct) ? String(pct) : String(Math.round(pct * 10) / 10);
+}
 
 /** Lowercase full names hidden from the Utilization tab (match Harvest “First Last”). */
 const UTILIZATION_EXCLUDED_NAME_LOWER = new Set(["david bagley", "stacey roelofs"]);
@@ -127,6 +158,14 @@ export function ResourcePlanningClient() {
   });
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"calendar" | "individual">("calendar");
+  const [displayUnit, setDisplayUnit] = useState<DisplayUnit>(() => {
+    if (typeof window === "undefined") return "percent";
+    try {
+      return localStorage.getItem("valtira-rp-display-unit") === "hours" ? "hours" : "percent";
+    } catch {
+      return "percent";
+    }
+  });
   const [expandedIndividualResource, setExpandedIndividualResource] = useState<string | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
   const [utilizationFilter, setUtilizationFilter] = useState<"all" | "least" | "most" | "coming-free">("all");
@@ -198,6 +237,14 @@ export function ResourcePlanningClient() {
   useEffect(() => {
     fetchMeta();
   }, [fetchMeta]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("valtira-rp-display-unit", displayUnit);
+    } catch {
+      // ignore
+    }
+  }, [displayUnit]);
 
   useEffect(() => {
     let cancelled = false;
@@ -475,14 +522,16 @@ export function ResourcePlanningClient() {
   function getUtilizationColor(resourceName: string, w: string): string {
     const sum = utilizationByResourceWeek.get(`${resourceName}${ROW_KEY_SEP}${w}`) ?? 0;
     const base = "resource-planning-util-cell ";
+    if (sum > OVER_PCT) return base + "bg-red-100 border-red-300";
     if (sum >= FULL_PCT) return base + "bg-green-100 border-green-300";
     if (sum >= PARTIAL_PCT) return base + "bg-amber-100 border-amber-300";
     if (sum > 0) return base + "bg-orange-100 border-orange-300";
     return base + "bg-red-50 border-red-200";
   }
 
-  /** Bright dot color for tooltip status (full / partial / low / none). */
+  /** Bright dot color for tooltip status (over / full / partial / low / none). */
   function getStatusDotColor(utilizationSum: number): string {
+    if (utilizationSum > OVER_PCT) return "bg-red-400";
     if (utilizationSum >= FULL_PCT) return "bg-green-500";
     if (utilizationSum >= PARTIAL_PCT) return "bg-amber-400";
     if (utilizationSum > 0) return "bg-orange-500";
@@ -614,7 +663,8 @@ export function ResourcePlanningClient() {
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div className="flex items-center justify-between gap-2 pb-3">
+      <div className="flex items-center justify-between gap-2 pb-3 flex-wrap">
+        <div className="flex items-center gap-2 shrink-0">
         <div role="group" aria-label="View mode" className="shrink-0">
           <div className="inline-flex rounded-full border border-neutral-300 bg-white text-sm overflow-hidden">
             <button
@@ -631,6 +681,26 @@ export function ResourcePlanningClient() {
             >
               Utilization
             </button>
+          </div>
+        </div>
+          <div role="group" aria-label="Display units" className="shrink-0">
+            <div className="inline-flex rounded-full border border-neutral-300 bg-white text-sm overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setDisplayUnit("hours")}
+                className={`rounded-l-full px-3 py-2 font-medium transition-colors ${displayUnit === "hours" ? "bg-neutral-900 text-white" : "text-neutral-600 hover:bg-neutral-100"}`}
+              >
+                Hours
+              </button>
+              <button
+                type="button"
+                onClick={() => setDisplayUnit("percent")}
+                className={`rounded-r-full px-3 py-2 font-medium transition-colors ${displayUnit === "percent" ? "bg-neutral-900 text-white" : "text-neutral-600 hover:bg-neutral-100"}`}
+                title="100% = 40 hours"
+              >
+                %
+              </button>
+            </div>
           </div>
         </div>
         {viewMode === "individual" && (
@@ -802,7 +872,7 @@ export function ResourcePlanningClient() {
                             key={w}
                             className={`min-w-[5rem] w-[5rem] border-r border-neutral-200 px-0.5 py-2 text-center last:border-r-0 ${color}`}
                           >
-                            {sum > 0 ? sum.toFixed(2) : "—"}
+                            {formatAllocationDisplay(sum, displayUnit)}
                           </td>
                         );
                       })}
@@ -835,7 +905,7 @@ export function ResourcePlanningClient() {
                                 key={w}
                                 className="min-w-[5rem] w-[5rem] border-r border-neutral-200 px-0.5 py-2 text-center last:border-r-0 text-neutral-600"
                               >
-                                {fte > 0 ? fte.toFixed(2) : "—"}
+                                {formatAllocationDisplay(fte, displayUnit)}
                               </td>
                             );
                           })}
@@ -933,7 +1003,7 @@ export function ResourcePlanningClient() {
                               setOpenProjectMenu(null);
                               const res = await fetch(`/api/resource-planning/projects/${encodeURIComponent(projectName)}`, { method: "DELETE" });
                               if (res.ok) {
-                                fetchAllocations();
+                                fetchAllocations(true);
                                 fetchMeta();
                               } else {
                                 const data = await res.json().catch(() => ({}));
@@ -1035,7 +1105,7 @@ export function ResourcePlanningClient() {
                                     <input
                                       type="text"
                                       inputMode="decimal"
-                                      placeholder="0"
+                                      placeholder={displayUnit === "hours" ? "hrs" : "%"}
                                       value={
                                         editingCell && "id" in editingCell
                                           ? editingCell.inputValue
@@ -1052,7 +1122,8 @@ export function ResourcePlanningClient() {
                                       }}
                                       onBlur={() => {
                                         if (!editingCell) return;
-                                        const parsed = Math.min(1, Math.max(0, parseFloat("id" in editingCell ? editingCell.inputValue : editingCell.inputValue) || 0));
+                                        const raw = "id" in editingCell ? editingCell.inputValue : editingCell.inputValue;
+                                        const parsed = fteFromDisplayInput(raw, displayUnit);
                                         if ("id" in editingCell) {
                                           saveCell({ id: editingCell.id, fte: parsed });
                                         } else {
@@ -1063,7 +1134,8 @@ export function ResourcePlanningClient() {
                                       onKeyDown={(e) => {
                                         if (e.key === "Escape") setEditingCell(null);
                                         if (e.key !== "Enter") return;
-                                        const parsed = Math.min(1, Math.max(0, parseFloat("id" in editingCell! ? editingCell.inputValue : editingCell!.inputValue) || 0));
+                                        const raw = "id" in editingCell! ? editingCell.inputValue : editingCell!.inputValue;
+                                        const parsed = fteFromDisplayInput(raw, displayUnit);
                                         if ("id" in editingCell!) saveCell({ id: editingCell.id, fte: parsed });
                                         else {
                                           if (editingCell!.inputValue.trim() !== "") saveCell({ new: true, projectName, resource_name, role, weekStart: w, fte: parsed });
@@ -1077,12 +1149,12 @@ export function ResourcePlanningClient() {
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        if (alloc) setEditingCell({ id: alloc.id, inputValue: String(Number(alloc.fte)) });
+                                        if (alloc) setEditingCell({ id: alloc.id, inputValue: editValueFromFte(Number(alloc.fte), displayUnit) });
                                         else setEditingCell({ new: true, rowKey, weekStart: w, inputValue: "" });
                                       }}
                                       className="block w-full rounded px-0.5 py-0.5 hover:ring-1 hover:ring-neutral-400"
                                     >
-                                      {alloc ? Number(alloc.fte) : "—"}
+                                      {alloc ? formatAllocationDisplay(Number(alloc.fte), displayUnit) : "—"}
                                     </button>
                                   )}
                                 </td>
@@ -1123,13 +1195,16 @@ export function ResourcePlanningClient() {
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-500">
         <span className="inline-flex items-center gap-1">
+          <span className="resource-planning-util-cell rounded bg-red-100 px-1.5 py-0.5">Over</span> &gt;100%
+        </span>
+        <span className="inline-flex items-center gap-1">
           <span className="resource-planning-util-cell rounded bg-green-100 px-1.5 py-0.5">Full</span> 80–100%
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="resource-planning-util-cell rounded bg-amber-100 px-1.5 py-0.5">Partial</span> 40–79%
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="resource-planning-util-cell rounded bg-orange-100 px-1.5 py-0.5">Low</span> 0–39%
+          <span className="resource-planning-util-cell rounded bg-orange-100 px-1.5 py-0.5">Low</span> 1–39%
         </span>
       </div>
 
@@ -1159,7 +1234,7 @@ export function ResourcePlanningClient() {
               {tooltipState.resource_name}
             </div>
             <div className="mt-0.5 text-neutral-600">
-              Total: {tooltipState.total.toFixed(2)} FTE
+              Total: {formatAllocationDisplay(tooltipState.total, displayUnit)}
             </div>
             <ul className="mt-1 space-y-0.5 text-neutral-500">
               {tooltipState.listForWeek.map((a) => {
@@ -1171,7 +1246,7 @@ export function ResourcePlanningClient() {
                     <span className="truncate min-w-0" title={tooltip ?? labelStr}>
                       {truncate(labelStr, 28)}
                     </span>
-                    <span className="shrink-0">{Number(a.fte)}</span>
+                    <span className="shrink-0">{formatAllocationDisplay(Number(a.fte), displayUnit)}</span>
                   </li>
                 );
               })}
@@ -1208,7 +1283,7 @@ export function ResourcePlanningClient() {
                   { method: "DELETE" }
                 );
                 if (res.ok) {
-                  fetchAllocations();
+                  fetchAllocations(true);
                   fetchMeta();
                 }
               }}
@@ -1228,10 +1303,13 @@ export function ResourcePlanningClient() {
           initialProject={addForProject ?? undefined}
           onClose={() => { setShowAdd(false); setAddForProject(null); }}
           onAdded={() => {
-            fetchAllocations();
-            fetchMeta();
+            const scrollY = window.scrollY;
             setShowAdd(false);
             setAddForProject(null);
+            void fetchAllocations(true).then(() => {
+              requestAnimationFrame(() => window.scrollTo(0, scrollY));
+            });
+            fetchMeta();
           }}
         />
       )}
@@ -1245,7 +1323,7 @@ export function ResourcePlanningClient() {
           onAdded={async (addedNames) => {
             setShowAddProject(false);
             setAddProjectDisplayNameDraft("");
-            await fetchAllocations();
+            await fetchAllocations(true);
             fetchMeta();
             if (addedNames.length) setAddedProjectName(addedNames[0]);
           }}
