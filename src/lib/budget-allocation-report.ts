@@ -95,7 +95,7 @@ export function integerPercentsSummingTo100(hoursList: number[], totalHours: num
   if (totalHours <= 0 || hoursList.length === 0) return hoursList.map(() => 0);
   const exact = hoursList.map((h) => (h / totalHours) * 100);
   const floored = exact.map((p) => Math.floor(p));
-  let remainder = 100 - floored.reduce((sum, p) => sum + p, 0);
+  const remainder = 100 - floored.reduce((sum, p) => sum + p, 0);
   const byFraction = exact
     .map((p, i) => ({ i, frac: p - floored[i] }))
     .sort((a, b) => b.frac - a.frac);
