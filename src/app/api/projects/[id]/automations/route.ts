@@ -30,7 +30,7 @@ export async function GET(
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const { data: automations, error } = await supabase
     .from("report_automations")
-    .select("id, period_type, day_of_week, day_of_month, time_utc, is_active, title, requires_approval, created_at")
+    .select("id, period_type, day_of_week, day_of_month, time_utc, is_active, title, requires_approval, report_format, created_at")
     .eq("project_id", projectId)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -56,6 +56,8 @@ export async function POST(
   const dayOfMonth = periodType === "month" && typeof body.dayOfMonth === "number" && body.dayOfMonth >= 1 && body.dayOfMonth <= 28 ? body.dayOfMonth : 1;
   const title = typeof body.title === "string" ? body.title.trim().slice(0, 200) || null : null;
   const requiresApproval = body.requiresApproval === false ? false : true;
+  const reportFormat =
+    body.reportFormat === "budget_allocation" ? "budget_allocation" : "standard";
   const { data: automation, error } = await supabase
     .from("report_automations")
     .insert({
@@ -67,6 +69,7 @@ export async function POST(
       is_active: true,
       title: title,
       requires_approval: requiresApproval,
+      report_format: reportFormat,
       updated_at: new Date().toISOString(),
     })
     .select()

@@ -99,12 +99,21 @@ export async function GET(req: Request) {
   const supabase = createAdminClient();
   const { timeUtc, dayOfWeek, businessDayOfMonth } = getCentralNow();
 
-  let due: { id: string; project_id: string; period_type: string; day_of_week: number | null; day_of_month: number | null; time_utc: string; requires_approval: boolean }[];
+  let due: {
+    id: string;
+    project_id: string;
+    period_type: string;
+    day_of_week: number | null;
+    day_of_month: number | null;
+    time_utc: string;
+    requires_approval: boolean;
+    report_format: string;
+  }[];
 
   if (isTestRun && requestedAutomationId && userId) {
     const { data: automation } = await supabase
       .from("report_automations")
-      .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, requires_approval")
+      .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, requires_approval, report_format")
       .eq("id", requestedAutomationId)
       .eq("is_active", true)
       .maybeSingle();
@@ -126,7 +135,7 @@ export async function GET(req: Request) {
   } else {
     const { data: automations } = await supabase
       .from("report_automations")
-      .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, requires_approval")
+      .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, requires_approval, report_format")
       .eq("is_active", true);
 
     due = isTestRun
@@ -161,6 +170,10 @@ export async function GET(req: Request) {
           {
             status: "pending_approval",
             approvalRequestedAt: new Date().toISOString(),
+            reportFormat:
+              automation.report_format === "budget_allocation"
+                ? "budget_allocation"
+                : "standard",
           }
         );
       } catch (createErr) {
@@ -169,7 +182,8 @@ export async function GET(req: Request) {
           automation.project_id,
           project.owner_user_id,
           automation.period_type as "week" | "month",
-          msg
+          msg,
+          automation.report_format === "budget_allocation" ? "budget_allocation" : "standard"
         );
         errors.push(`report placeholder (Harvest failed) ${automation.project_id}: ${msg}`);
       }

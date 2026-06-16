@@ -22,7 +22,7 @@ export async function POST(
 
   const { data: report } = await supabase
     .from("reports")
-    .select("id, project_id, period_type, period_start, period_end, harvest_data_snapshot, status")
+    .select("id, project_id, period_type, period_start, period_end, harvest_data_snapshot, status, report_format")
     .eq("id", reportId)
     .single();
   if (!report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
@@ -65,6 +65,7 @@ export async function POST(
     period_type: report.period_type,
     period_start: report.period_start,
     period_end: report.period_end,
+    report_format: report.report_format,
     harvest_data_snapshot: report.harvest_data_snapshot,
   });
   const html = `

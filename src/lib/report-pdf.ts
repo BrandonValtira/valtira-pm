@@ -1,5 +1,13 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import type { BudgetAllocationData } from "@/lib/budget-allocation-report";
+import { segmentDisplayPercent } from "@/lib/budget-allocation-report";
+import {
+  buildBudgetBurnDisplay,
+  generateBudgetBurnEmailHtml,
+  type BudgetBurnSnapshot,
+} from "@/lib/budget-burn-chart";
+import { REPORT_FORMAT_BUDGET_ALLOCATION, reportFormatLabel } from "@/lib/report-formats";
 import { formatDateOnly } from "@/lib/report-week";
 
 type TimeEntry = {
@@ -23,12 +31,22 @@ type ReportForPdf = {
   period_type: string;
   period_start: string;
   period_end: string;
+  report_format?: string | null;
   harvest_data_snapshot?: {
+    reportFormat?: string;
     timeEntries?: TimeEntry[];
     harvestProjectNames?: string[];
     harvestProjects?: HarvestProjectSnapshot[];
+    budgetAllocation?: BudgetAllocationData;
+    budgetBurn?: BudgetBurnSnapshot | null;
   } | null;
 };
+
+function isBudgetAllocationReport(report: ReportForPdf): boolean {
+  if (report.report_format === REPORT_FORMAT_BUDGET_ALLOCATION) return true;
+  const snap = report.harvest_data_snapshot;
+  return snap?.reportFormat === REPORT_FORMAT_BUDGET_ALLOCATION || !!snap?.budgetAllocation;
+}
 
 function formatMonthRange(start: string, end: string): string {
   const [sy, sm] = start.slice(0, 10).split("-").map(Number);
@@ -48,6 +66,13 @@ function firstName(fullName: string): string {
  * Generate a PDF buffer for the given report (for email attachment).
  */
 export function generateReportPdf(report: ReportForPdf): ArrayBuffer {
+  if (isBudgetAllocationReport(report)) {
+    return generateBudgetAllocationPdf(report);
+  }
+  return generateStandardReportPdf(report);
+}
+
+function generateStandardReportPdf(report: ReportForPdf): ArrayBuffer {
   const doc = new jsPDF({ format: "a4", unit: "pt" });
   const snapshot = report.harvest_data_snapshot;
   const entries = snapshot?.timeEntries ?? [];
@@ -150,8 +175,102 @@ export function generateReportPdf(report: ReportForPdf): ArrayBuffer {
   return doc.output("arraybuffer") as ArrayBuffer;
 }
 
+function generateBudgetAllocationPdf(report: ReportForPdf): ArrayBuffer {
+  const doc = new jsPDF({ format: "a4", unit: "pt" });
+  const margin = 40;
+  let y = 20;
+  const snapshot = report.harvest_data_snapshot;
+  const allocation = snapshot?.budgetAllocation;
+  const segments = allocation?.segments ?? [];
+  const budgetTotalHours = allocation?.totalHours ?? 0;
+  const harvestProjects = snapshot?.harvestProjects ?? [];
+  const projectNames = snapshot?.harvestProjectNames ?? [];
+  const clientNames = Array.from(new Set(harvestProjects.map((p) => p.client_name).filter(Boolean))) as string[];
+  const titleLine = [clientNames.join(", "), projectNames.join(", ")].filter(Boolean).join(" · ");
+  const periodLabel =
+    report.period_type === "month"
+      ? `Month: ${formatMonthRange(report.period_start, report.period_end)}`
+      : `Week: ${formatDateOnly(report.period_start)} – ${formatDateOnly(report.period_end)}`;
+
+  doc.setFontSize(16);
+  doc.text(titleLine || "Budget Allocation Report", margin, y);
+  y += 18;
+  doc.setFontSize(10);
+  doc.setTextColor(100, 100, 100);
+  doc.text(periodLabel, margin, y);
+  y += 22;
+  doc.setTextColor(0, 0, 0);
+
+  doc.setFontSize(11);
+  doc.text("Hours by project", margin, y);
+  y += 14;
+  doc.setFontSize(10);
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const pct = segmentDisplayPercent(seg, segments, budgetTotalHours, i);
+    const line = `${seg.displayName} (${pct}% of hours): ${seg.summary}`;
+    const wrapped = doc.splitTextToSize(line, 520);
+    doc.text(wrapped, margin, y);
+    y += wrapped.length * 12 + 6;
+    if (y > 700) {
+      doc.addPage();
+      y = 40;
+    }
+  }
+  y += 8;
+
+  for (const seg of segments) {
+    if (y > 650) {
+      doc.addPage();
+      y = 40;
+    }
+    doc.setFontSize(11);
+    doc.text(seg.displayName, margin, y);
+    y += 14;
+    doc.text("Tasks", margin, y);
+    y += 14;
+    if (seg.entries.length > 0) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Date", "Notes", "Hours", "Resource"]],
+        body: seg.entries.map((e) => [
+          e.spent_date,
+          (e.notes || "—").slice(0, 50),
+          e.hours.toFixed(1),
+          firstName(e.user.name),
+        ]),
+        margin: { left: margin, right: margin },
+        theme: "grid",
+        styles: { fontSize: 9 },
+        headStyles: { fillColor: [240, 240, 240] },
+      });
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+      doc.setFontSize(10);
+      doc.text(`${seg.displayName} hours consumed: ${seg.hours.toFixed(1)}`, margin, y);
+      y += 20;
+    } else {
+      doc.setFontSize(10);
+      doc.text("No time entries in this period.", margin, y);
+      y += 16;
+    }
+  }
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.text(`Total hours consumed: ${budgetTotalHours.toFixed(1)}`, margin, y + 4);
+  doc.setFont("helvetica", "normal");
+  return doc.output("arraybuffer") as ArrayBuffer;
+}
+
 /** Same report content as PDF, as HTML for email body (no attachment). */
 export function generateReportHtml(report: ReportForPdf): string {
+  if (isBudgetAllocationReport(report)) {
+    return generateBudgetAllocationHtml(report);
+  }
+  return generateStandardReportHtml(report);
+}
+
+function generateStandardReportHtml(report: ReportForPdf): string {
   const snapshot = report.harvest_data_snapshot;
   const entries = snapshot?.timeEntries ?? [];
   const totalHours = entries.reduce((s, e) => s + e.hours, 0);
@@ -236,6 +355,93 @@ export function generateReportHtml(report: ReportForPdf): string {
   <p style="font-weight:600;margin:0 0 6px 0;">Tasks</p>
   ${tasksHtml}
   <p style="margin-top:12px;"><strong>Total hours consumed:</strong> ${totalHours.toFixed(1)}</p>
+</div>`;
+}
+
+function generateBudgetAllocationHtml(report: ReportForPdf): string {
+  const snapshot = report.harvest_data_snapshot;
+  const allocation = snapshot?.budgetAllocation;
+  const segments = allocation?.segments ?? [];
+  const budgetTotalHours = allocation?.totalHours ?? 0;
+  const harvestProjects = snapshot?.harvestProjects ?? [];
+  const projectNames = snapshot?.harvestProjectNames ?? [];
+  const clientNames = Array.from(new Set(harvestProjects.map((p) => p.client_name).filter(Boolean))) as string[];
+  const projectLabel = projectNames.length > 0 ? projectNames.join(", ") : "Harvest project";
+  const subtitleLine = [clientNames.join(", "), projectLabel].filter(Boolean).join(" · ");
+  const periodLabel =
+    report.period_type === "month"
+      ? `Month: ${formatMonthRange(report.period_start, report.period_end)}`
+      : `Week: ${formatDateOnly(report.period_start)} – ${formatDateOnly(report.period_end)}`;
+
+  const burnDisplay = buildBudgetBurnDisplay({
+    budgetBurn: snapshot?.budgetBurn,
+    harvestProjects: harvestProjects.map((p) => ({
+      budget: p.budget ?? null,
+      budget_spent: p.budget_spent,
+    })),
+    harvestProjectNames: projectNames,
+    periodType: report.period_type === "month" ? "month" : "week",
+    periodEnd: report.period_end,
+    periodHours: budgetTotalHours,
+  });
+  const budgetBurnHtml = burnDisplay ? generateBudgetBurnEmailHtml(burnDisplay) : "";
+
+  const overviewHtml = segments
+    .map(
+      (seg, index) =>
+        `<p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#111111;"><strong>${escapeHtml(seg.displayName)} (${segmentDisplayPercent(seg, segments, budgetTotalHours, index)}% of hours):</strong> ${escapeHtml(seg.summary)}</p>`
+    )
+    .join("");
+
+  const disclaimerHtml = `<p style="margin:12px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#737373;font-style:italic;">This report is not final. Valtira Project Managers review entered hours on a weekly basis to ensure developer hours are logged to the correct project. PMs may shift hours during this review.</p>`;
+
+  const tablesHtml = segments
+    .map((seg) => {
+      const rows =
+        seg.entries.length > 0
+          ? seg.entries
+              .map(
+                (e) =>
+                  `<tr>
+                    <td>${e.spent_date}</td>
+                    <td>${escapeHtml((e.notes || "—").slice(0, 80))}</td>
+                    <td style="text-align:right;">${e.hours.toFixed(1)}</td>
+                    <td>${escapeHtml(firstName(e.user.name))}</td>
+                  </tr>`
+              )
+              .join("")
+          : `<tr><td colspan="4">No time entries in this period.</td></tr>`;
+      return `
+        <div style="margin-top:20px;font-family:Arial,Helvetica,sans-serif;">
+          <p style="font-weight:bold;margin:0 0 8px 0;font-size:14px;background-color:#171717;color:#ffffff;padding:8px 12px;">${escapeHtml(seg.displayName)}</p>
+          <p style="font-weight:bold;margin:0 0 8px 0;font-size:14px;color:#111111;">Tasks</p>
+          <table role="presentation" style="border-collapse:collapse;width:100%;max-width:560px;" cellpadding="6" cellspacing="0" border="1">
+            <thead>
+              <tr style="background:#f0f0f0;">
+                <th style="text-align:left;">Date</th>
+                <th style="text-align:left;">Notes</th>
+                <th style="text-align:right;">Hours</th>
+                <th style="text-align:left;">Resource</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <p style="margin-top:8px;">${escapeHtml(seg.displayName)} hours consumed: ${seg.hours.toFixed(1)}</p>
+        </div>`;
+    })
+    .join("");
+
+  return `
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#111111;">
+  <p style="font-size:18px;font-weight:bold;margin:0 0 8px 0;">${escapeHtml(reportFormatLabel(REPORT_FORMAT_BUDGET_ALLOCATION))}</p>
+  <p style="font-size:14px;color:#404040;margin:0 0 4px 0;">${escapeHtml(subtitleLine)}</p>
+  <p style="font-size:13px;color:#525252;margin:0 0 16px 0;">${escapeHtml(periodLabel)}</p>
+  ${budgetBurnHtml}
+  <p style="font-weight:bold;margin:0 0 8px 0;font-size:14px;">Hours by project</p>
+  <div style="margin-bottom:8px;">${overviewHtml}</div>
+  ${disclaimerHtml}
+  ${tablesHtml}
+  <p style="margin-top:16px;font-weight:bold;">Total hours consumed: ${(allocation?.totalHours ?? 0).toFixed(1)}</p>
 </div>`;
 }
 

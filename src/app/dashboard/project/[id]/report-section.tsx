@@ -3,6 +3,18 @@
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, type RefObject } from "react";
+import type { BudgetAllocationData } from "@/lib/budget-allocation-report";
+import { segmentDisplayPercent, segmentKey } from "@/lib/budget-allocation-report";
+import {
+  buildBudgetBurnDisplay,
+  type BudgetBurnSnapshot,
+} from "@/lib/budget-burn-chart";
+import {
+  REPORT_FORMAT_BUDGET_ALLOCATION,
+  REPORT_FORMAT_OPTIONS,
+  reportFormatLabel,
+  type ReportFormat,
+} from "@/lib/report-formats";
 import { formatDateOnly } from "@/lib/report-week";
 
 type TimeEntry = {
@@ -38,10 +50,16 @@ type Report = {
   status: string;
   created_at: string;
   approved_at?: string | null;
+  report_format?: ReportFormat | string | null;
   harvest_data_snapshot?: {
+    reportFormat?: ReportFormat;
     timeEntries?: TimeEntry[];
     harvestProjectNames?: string[];
     harvestProjects?: HarvestProjectSnapshot[];
+    budgetAllocation?: BudgetAllocationData;
+    budgetBurn?: BudgetBurnSnapshot | null;
+    _placeholder?: boolean;
+    _error?: string;
   } | null;
 };
 
@@ -54,6 +72,7 @@ type Automation = {
   is_active: boolean;
   title?: string | null;
   requires_approval?: boolean;
+  report_format?: ReportFormat | string | null;
   created_at: string;
 };
 
@@ -62,6 +81,50 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 function firstName(fullName: string): string {
   const part = fullName.trim().split(/\s+/)[0];
   return part ?? fullName;
+}
+
+function TimeEntriesTable({ entries }: { entries: TimeEntry[] }) {
+  return (
+    <div className="mt-2 overflow-x-auto">
+      <table className="min-w-full text-sm text-neutral-900">
+        <thead>
+          <tr className="border-b border-neutral-200 text-left text-neutral-800">
+            <th className="pb-2 pr-3">Date</th>
+            <th className="pb-2 pr-3">Notes from Harvest</th>
+            <th className="pb-2 pr-3 text-right">Hours</th>
+            <th className="pb-2 pr-3">Resource</th>
+            <th className="pb-2">Jira / Reference</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((e) => (
+            <tr key={e.id} className="border-b border-neutral-100">
+              <td className="py-2 pr-3">{e.spent_date}</td>
+              <td className="max-w-[200px] truncate py-2 pr-3" title={e.notes ?? ""}>
+                {e.notes || "—"}
+              </td>
+              <td className="py-2 pr-3 text-right">{e.hours.toFixed(1)}</td>
+              <td className="py-2 pr-3">{firstName(e.user.name)}</td>
+              <td className="py-2">
+                {e.external_reference?.permalink ? (
+                  <a
+                    href={e.external_reference.permalink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline"
+                  >
+                    View
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 /** Format YYYY-MM-DD for display without timezone shift (matches PDF/email). */
@@ -112,11 +175,187 @@ function formatSchedule(a: Automation): string {
   return `${DAYS[day]}s at ${timeStr}`;
 }
 
+function varianceClassName(v: { emailColor: string }): string {
+  if (v.emailColor === "#b91c1c") return "font-medium text-red-600";
+  if (v.emailColor === "#15803d") return "font-medium text-green-700";
+  return "text-neutral-600";
+}
+
+function BudgetBurnOverview({
+  report,
+  snapshot,
+  periodHours,
+}: {
+  report: Report;
+  snapshot: NonNullable<Report["harvest_data_snapshot"]>;
+  periodHours: number;
+}) {
+  const display = buildBudgetBurnDisplay({
+    budgetBurn: snapshot.budgetBurn,
+    harvestProjects: snapshot.harvestProjects ?? [],
+    harvestProjectNames: snapshot.harvestProjectNames ?? [],
+    periodType: report.period_type === "month" ? "month" : "week",
+    periodEnd: report.period_end,
+    periodHours,
+  });
+
+  if (!display) {
+    return (
+      <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-600">
+        No hour budget set in Harvest for this project. Add a budget in Harvest to see burn tracking.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+      <h4 className="text-sm font-semibold text-neutral-900">Budget consumption</h4>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-md border border-neutral-200 bg-white p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+            {display.periodLabel}
+          </p>
+          <p className="mt-1 text-sm text-neutral-900">
+            <span className="font-bold">{display.periodActual.toFixed(1)}h</span> burned ·{" "}
+            <span className="font-medium">{display.periodBudget.toFixed(1)}h</span> budgeted
+          </p>
+          <p className={`mt-0.5 text-xs ${varianceClassName(display.periodVariance)}`}>
+            {display.periodVariance.label}
+          </p>
+        </div>
+        <div className="rounded-md border border-neutral-200 bg-white p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+            {display.contractDateLabel}
+          </p>
+          <p className="mt-1 text-sm text-neutral-900">
+            <span className="font-bold">{display.spentToDate.toFixed(1)}h</span> burned ·{" "}
+            <span className="font-medium">{display.totalBudget.toFixed(1)}h</span> total budget
+          </p>
+          <p className={`mt-0.5 text-xs ${varianceClassName(display.contractVariance)}`}>
+            {display.contractVariance.label}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-600">
+            Expected burn: ~{display.monthlyBudget.toFixed(1)}h/mo · ~{display.weeklyBudget.toFixed(1)}h/wk
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Budget Allocation report: % breakdown by ticket project + per-project task tables */
+function BudgetAllocationReportContent({
+  report,
+  snapshot,
+  isPlaceholder,
+  placeholderError,
+}: {
+  report: Report;
+  snapshot: NonNullable<Report["harvest_data_snapshot"]>;
+  isPlaceholder: boolean;
+  placeholderError: string;
+}) {
+  const allocation = snapshot.budgetAllocation;
+  const segments = allocation?.segments ?? [];
+  const totalHours = allocation?.totalHours ?? 0;
+  const projectNames = snapshot.harvestProjectNames ?? [];
+  const harvestProjects = snapshot.harvestProjects ?? [];
+  const clientNames = Array.from(new Set(harvestProjects.map((p) => p.client_name).filter(Boolean))) as string[];
+  const projectLabel = projectNames.length > 0 ? projectNames.join(", ") : "Harvest project";
+  const periodLabel =
+    report.period_type === "month"
+      ? `Month: ${formatMonthRange(report.period_start, report.period_end)}`
+      : `Week: ${formatReportDate(report.period_start)} – ${formatReportDate(report.period_end)}`;
+
+  return (
+    <>
+      {isPlaceholder && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <p className="font-medium">Report was created but data could not be loaded.</p>
+          {placeholderError && <p className="mt-1 text-amber-700">{placeholderError}</p>}
+          <p className="mt-1">Connect Harvest and link a Harvest project, then use “Regenerate”.</p>
+        </div>
+      )}
+      <h2 className="text-lg font-bold tracking-tight text-neutral-900">
+        {reportFormatLabel(REPORT_FORMAT_BUDGET_ALLOCATION)}
+      </h2>
+      <p className="mt-2 text-sm text-neutral-700">
+        {[clientNames.join(", "), projectLabel].filter(Boolean).join(" · ")}
+      </p>
+      <p className="mt-1 text-sm text-neutral-600">{periodLabel}</p>
+
+      <BudgetBurnOverview report={report} snapshot={snapshot} periodHours={totalHours} />
+
+      <div className="mt-4 space-y-3">
+        <h4 className="text-sm font-medium text-neutral-900">Hours by project</h4>
+        {segments.length === 0 ? (
+          <p className="text-sm text-neutral-600">No time entries in this period.</p>
+        ) : (
+          <ul className="space-y-3 text-sm text-neutral-900">
+            {segments.map((seg, index) => (
+              <li key={segmentKey(seg)}>
+                <span className="font-medium">
+                  {seg.displayName} ({segmentDisplayPercent(seg, segments, totalHours, index)}% of hours):
+                </span>{" "}
+                {seg.summary}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs italic text-neutral-500">
+          This report is not final. Valtira Project Managers review entered hours on a weekly basis to
+          ensure developer hours are logged to the correct project. PMs may shift hours during this
+          review.
+        </p>
+      </div>
+
+      {segments.map((seg) => (
+        <div key={`table-${segmentKey(seg)}`} className="mt-6">
+          <div className="rounded-md bg-neutral-900 px-4 py-2.5">
+            <h4 className="text-sm font-bold text-white">{seg.displayName}</h4>
+          </div>
+          <h4 className="mt-4 text-sm font-medium text-neutral-900">Tasks</h4>
+          {seg.entries.length > 0 ? (
+            <>
+              <TimeEntriesTable entries={seg.entries} />
+              <p className="mt-3 border-t border-neutral-200 pt-2 text-sm font-medium text-neutral-900">
+                {seg.displayName} hours consumed: {seg.hours.toFixed(1)}
+              </p>
+            </>
+          ) : (
+            <p className="mt-2 text-sm text-neutral-600">No time entries in this period.</p>
+          )}
+        </div>
+      ))}
+
+      <p className="mt-4 text-sm font-bold text-neutral-900">
+        Total hours consumed: {totalHours.toFixed(1)}
+      </p>
+    </>
+  );
+}
+
 /** Single report content block (used in list and in modal) */
 function ReportContent({ report }: { report: Report }) {
-  const snapshot = report.harvest_data_snapshot as { _placeholder?: boolean; _error?: string; timeEntries?: TimeEntry[]; harvestProjectNames?: string[]; harvestProjects?: HarvestProjectSnapshot[] } | undefined;
+  const snapshot = report.harvest_data_snapshot;
   const isPlaceholder = !!(snapshot && "_placeholder" in snapshot && snapshot._placeholder);
-  const placeholderError = isPlaceholder && snapshot && "_error" in snapshot ? String((snapshot as { _error?: string })._error) : "";
+  const placeholderError = isPlaceholder && snapshot && "_error" in snapshot ? String(snapshot._error) : "";
+  const isBudgetAllocation =
+    report.report_format === REPORT_FORMAT_BUDGET_ALLOCATION ||
+    snapshot?.reportFormat === REPORT_FORMAT_BUDGET_ALLOCATION ||
+    !!snapshot?.budgetAllocation;
+
+  if (isBudgetAllocation) {
+    return (
+      <BudgetAllocationReportContent
+        report={report}
+        snapshot={snapshot ?? {}}
+        isPlaceholder={isPlaceholder}
+        placeholderError={placeholderError}
+      />
+    );
+  }
+
   const entries = snapshot?.timeEntries ?? [];
   const totalHours = entries.reduce((s, e) => s + e.hours, 0);
   const projectNames = snapshot?.harvestProjectNames ?? [];
@@ -196,45 +435,7 @@ function ReportContent({ report }: { report: Report }) {
       <h4 className="mt-4 text-sm font-medium text-neutral-900">Tasks</h4>
       {entries.length > 0 ? (
         <>
-          <div className="mt-2 overflow-x-auto">
-            <table className="min-w-full text-sm text-neutral-900">
-              <thead>
-                <tr className="border-b border-neutral-200 text-left text-neutral-800">
-                  <th className="pb-2 pr-3">Date</th>
-                  <th className="pb-2 pr-3">Notes from Harvest</th>
-                  <th className="pb-2 pr-3 text-right">Hours</th>
-                  <th className="pb-2 pr-3">Resource</th>
-                  <th className="pb-2">Jira / Reference</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((e) => (
-                  <tr key={e.id} className="border-b border-neutral-100">
-                    <td className="py-2 pr-3">{e.spent_date}</td>
-                    <td className="max-w-[200px] truncate py-2 pr-3" title={e.notes ?? ""}>
-                      {e.notes || "—"}
-                    </td>
-                    <td className="py-2 pr-3 text-right">{e.hours.toFixed(1)}</td>
-                    <td className="py-2 pr-3">{firstName(e.user.name)}</td>
-                    <td className="py-2">
-                      {e.external_reference?.permalink ? (
-                        <a
-                          href={e.external_reference.permalink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline"
-                        >
-                          View
-                        </a>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <TimeEntriesTable entries={entries} />
           <p className="mt-3 border-t border-neutral-200 pt-2 text-sm font-medium text-neutral-900">
             Total hours consumed: {totalHours.toFixed(1)}
           </p>
@@ -275,6 +476,7 @@ export function ReportSection({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [generatePeriodModal, setGeneratePeriodModal] = useState<"week" | "month" | null>(null);
   const [generatePeriodValue, setGeneratePeriodValue] = useState<string>("last");
+  const [generateReportFormat, setGenerateReportFormat] = useState<ReportFormat>("standard");
   const [editingAutomationId, setEditingAutomationId] = useState<string | null>(null);
   const [sendTestAutomationId, setSendTestAutomationId] = useState<string | null>(null);
 
@@ -304,6 +506,7 @@ export function ReportSection({
   async function createAutomation(
     title: string,
     requiresApproval: boolean,
+    reportFormat: ReportFormat,
     periodType: "week" | "month",
     dayOfWeek: number | null,
     dayOfMonth: number | null,
@@ -318,6 +521,7 @@ export function ReportSection({
         body: JSON.stringify({
           title: title.trim() || undefined,
           requiresApproval,
+          reportFormat,
           periodType,
           dayOfWeek: periodType === "week" ? dayOfWeek : undefined,
           dayOfMonth: periodType === "month" ? dayOfMonth : undefined,
@@ -386,6 +590,7 @@ export function ReportSection({
     id: string,
     title: string,
     requiresApproval: boolean,
+    reportFormat: ReportFormat,
     periodType: "week" | "month",
     dayOfWeek: number | null,
     dayOfMonth: number | null,
@@ -400,6 +605,7 @@ export function ReportSection({
         body: JSON.stringify({
           title: title.trim() || undefined,
           requiresApproval,
+          reportFormat,
           periodType,
           dayOfWeek: periodType === "week" ? dayOfWeek : undefined,
           dayOfMonth: periodType === "month" ? dayOfMonth : undefined,
@@ -453,8 +659,17 @@ export function ReportSection({
     return opts;
   }
 
-  async function generateReport(periodType: "week" | "month", periodValue?: string) {
-    const body: { periodType: string; periodStart?: string; periodEnd?: string } = { periodType };
+  async function generateReport(
+    periodType: "week" | "month",
+    periodValue?: string,
+    reportFormat: ReportFormat = "standard"
+  ) {
+    const body: {
+      periodType: string;
+      reportFormat: ReportFormat;
+      periodStart?: string;
+      periodEnd?: string;
+    } = { periodType, reportFormat };
     if (periodValue && periodValue !== "last") {
       const [start, end] = periodValue.split("|");
       if (start && end) {
@@ -480,6 +695,7 @@ export function ReportSection({
       setSendToEmails([""]);
       setGeneratePeriodModal(null);
       setGeneratePeriodValue("last");
+      setGenerateReportFormat("standard");
       router.refresh();
     } finally {
       setLoading(null);
@@ -488,6 +704,7 @@ export function ReportSection({
 
   function openGenerateModal(type: "week" | "month") {
     setGeneratePeriodValue("last");
+    setGenerateReportFormat("standard");
     setGeneratePeriodModal(type);
   }
 
@@ -645,8 +862,8 @@ export function ReportSection({
                 {editingAutomationId === a.id ? (
                   <EditAutomationForm
                     automation={a}
-                    onSave={(title, requiresApproval, periodType, dayOfWeek, dayOfMonth, timeCentral) =>
-                      updateAutomation(a.id, title, requiresApproval, periodType, dayOfWeek, dayOfMonth, timeCentral)
+                    onSave={(title, requiresApproval, reportFormat, periodType, dayOfWeek, dayOfMonth, timeCentral) =>
+                      updateAutomation(a.id, title, requiresApproval, reportFormat, periodType, dayOfWeek, dayOfMonth, timeCentral)
                     }
                     onCancel={() => setEditingAutomationId(null)}
                     loading={loading === `edit-${a.id}`}
@@ -661,6 +878,9 @@ export function ReportSection({
                   >
                     <span className="text-sm font-medium text-neutral-900">
                       {a.title?.trim() || (a.period_type === "month" ? "Monthly report" : "Weekly report")}
+                      <span className="ml-1 text-xs font-normal text-neutral-600">
+                        · {reportFormatLabel(a.report_format)}
+                      </span>
                       {a.requires_approval !== false && <span className="ml-1 text-xs font-normal text-neutral-600">(requires approval)</span>}
                     </span>
                     <span className="text-sm text-neutral-600">{formatSchedule(a)}</span>
@@ -736,9 +956,44 @@ export function ReportSection({
               {generatePeriodModal === "week" ? "Generate weekly report" : "Generate monthly report"}
             </h3>
             <p className="mt-1 text-sm text-neutral-700">
-              Default is the last completed {generatePeriodModal}. You can choose a specific period below.
+              Default is the last completed {generatePeriodModal}. Choose report type and period below.
             </p>
-            <div className="mt-4">
+            <div className="mt-4 space-y-4">
+              <div>
+                <label htmlFor="generate-report-format" className="block text-sm font-medium text-neutral-900">
+                  Report type
+                </label>
+                <div className="relative mt-1">
+                  <select
+                    id="generate-report-format"
+                    value={generateReportFormat}
+                    onChange={(e) => setGenerateReportFormat(e.target.value as ReportFormat)}
+                    className="block w-full appearance-none rounded-md border border-neutral-300 bg-white pl-3 pr-8 py-2 text-sm text-neutral-900"
+                  >
+                    {REPORT_FORMAT_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-neutral-500">
+                    <svg viewBox="0 0 20 20" aria-hidden className="h-4 w-4">
+                      <path
+                        d="M5.25 7.5L10 12.25L14.75 7.5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-neutral-500">
+                  {REPORT_FORMAT_OPTIONS.find((o) => o.value === generateReportFormat)?.description}
+                </p>
+              </div>
+              <div>
               <label htmlFor="generate-period" className="block text-sm font-medium text-neutral-900">
                 Period
               </label>
@@ -768,11 +1023,12 @@ export function ReportSection({
                   </svg>
                 </span>
               </div>
+              </div>
             </div>
             <div className="mt-6 flex gap-2">
               <button
                 type="button"
-                onClick={() => generateReport(generatePeriodModal, generatePeriodValue)}
+                onClick={() => generateReport(generatePeriodModal, generatePeriodValue, generateReportFormat)}
                 disabled={!!loading}
                 className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
               >
@@ -780,7 +1036,11 @@ export function ReportSection({
               </button>
               <button
                 type="button"
-                onClick={() => { setGeneratePeriodModal(null); setGeneratePeriodValue("last"); }}
+                onClick={() => {
+                  setGeneratePeriodModal(null);
+                  setGeneratePeriodValue("last");
+                  setGenerateReportFormat("standard");
+                }}
                 disabled={!!loading}
                 className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
               >
@@ -1044,12 +1304,21 @@ function AddAutomationForm({
   onCancel,
   loading,
 }: {
-  onSave: (title: string, requiresApproval: boolean, periodType: "week" | "month", dayOfWeek: number | null, dayOfMonth: number | null, timeCentral: string) => void;
+  onSave: (
+    title: string,
+    requiresApproval: boolean,
+    reportFormat: ReportFormat,
+    periodType: "week" | "month",
+    dayOfWeek: number | null,
+    dayOfMonth: number | null,
+    timeCentral: string
+  ) => void;
   onCancel: () => void;
   loading: boolean;
 }) {
   const [title, setTitle] = useState("");
   const [requiresApproval, setRequiresApproval] = useState(true);
+  const [reportFormat, setReportFormat] = useState<ReportFormat>("standard");
   const [periodType, setPeriodType] = useState<"week" | "month">("week");
   const [dayOfWeek, setDayOfWeek] = useState(1);
   const [dayOfMonth, setDayOfMonth] = useState(1); // 1st–22nd business day
@@ -1062,6 +1331,26 @@ function AddAutomationForm({
         The report will always be generated from the last completed week or month.
       </p>
       <div className="mt-3 space-y-3">
+        <div>
+          <label htmlFor="automation-report-format" className="block text-sm text-neutral-600">
+            Report type
+          </label>
+          <select
+            id="automation-report-format"
+            value={reportFormat}
+            onChange={(e) => setReportFormat(e.target.value as ReportFormat)}
+            className="mt-1 block w-full max-w-md rounded-md border border-neutral-300 px-3 py-2 text-sm"
+          >
+            {REPORT_FORMAT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-neutral-500">
+            {REPORT_FORMAT_OPTIONS.find((o) => o.value === reportFormat)?.description}
+          </p>
+        </div>
         <div>
           <label htmlFor="automation-title" className="block text-sm text-neutral-600">Title</label>
           <input
@@ -1097,7 +1386,7 @@ function AddAutomationForm({
           </div>
         </div>
         <div>
-          <span className="text-sm text-neutral-600">Type</span>
+          <span className="text-sm text-neutral-600">Schedule</span>
           <div className="mt-1 flex gap-4">
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -1169,7 +1458,7 @@ function AddAutomationForm({
       <div className="mt-4 flex gap-2">
         <button
           type="button"
-          onClick={() => onSave(title, requiresApproval, periodType, periodType === "week" ? dayOfWeek : null, periodType === "month" ? dayOfMonth : null, timeCentral)}
+          onClick={() => onSave(title, requiresApproval, reportFormat, periodType, periodType === "week" ? dayOfWeek : null, periodType === "month" ? dayOfMonth : null, timeCentral)}
           disabled={loading}
           className="rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
         >
@@ -1195,12 +1484,25 @@ function EditAutomationForm({
   loading,
 }: {
   automation: Automation;
-  onSave: (title: string, requiresApproval: boolean, periodType: "week" | "month", dayOfWeek: number | null, dayOfMonth: number | null, timeCentral: string) => void;
+  onSave: (
+    title: string,
+    requiresApproval: boolean,
+    reportFormat: ReportFormat,
+    periodType: "week" | "month",
+    dayOfWeek: number | null,
+    dayOfMonth: number | null,
+    timeCentral: string
+  ) => void;
   onCancel: () => void;
   loading: boolean;
 }) {
   const [title, setTitle] = useState(automation.title?.trim() ?? "");
   const [requiresApproval, setRequiresApproval] = useState(automation.requires_approval !== false);
+  const [reportFormat, setReportFormat] = useState<ReportFormat>(
+    automation.report_format === REPORT_FORMAT_BUDGET_ALLOCATION
+      ? REPORT_FORMAT_BUDGET_ALLOCATION
+      : "standard"
+  );
   const [periodType, setPeriodType] = useState<"week" | "month">(automation.period_type === "month" ? "month" : "week");
   const [dayOfWeek, setDayOfWeek] = useState(automation.day_of_week ?? 1);
   const [dayOfMonth, setDayOfMonth] = useState(Math.min(22, Math.max(1, automation.day_of_month ?? 1)));
@@ -1213,6 +1515,26 @@ function EditAutomationForm({
         The report will always be generated from the last completed week or month.
       </p>
       <div className="mt-3 space-y-3">
+        <div>
+          <label htmlFor="edit-automation-report-format" className="block text-sm font-medium text-neutral-900">
+            Report type
+          </label>
+          <select
+            id="edit-automation-report-format"
+            value={reportFormat}
+            onChange={(e) => setReportFormat(e.target.value as ReportFormat)}
+            className="mt-1 block w-full max-w-md rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
+          >
+            {REPORT_FORMAT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-neutral-600">
+            {REPORT_FORMAT_OPTIONS.find((o) => o.value === reportFormat)?.description}
+          </p>
+        </div>
         <div>
           <label htmlFor="edit-automation-title" className="block text-sm font-medium text-neutral-900">Title</label>
           <input
@@ -1238,7 +1560,7 @@ function EditAutomationForm({
           </div>
         </div>
         <div>
-          <span className="text-sm text-neutral-900">Type</span>
+          <span className="text-sm text-neutral-900">Schedule</span>
           <div className="mt-1 flex gap-4">
             <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-900">
               <input type="radio" name="edit-periodType" checked={periodType === "week"} onChange={() => setPeriodType("week")} />
@@ -1294,7 +1616,7 @@ function EditAutomationForm({
       <div className="mt-4 flex gap-2">
         <button
           type="button"
-          onClick={() => onSave(title, requiresApproval, periodType, periodType === "week" ? dayOfWeek : null, periodType === "month" ? dayOfMonth : null, timeCentral)}
+          onClick={() => onSave(title, requiresApproval, reportFormat, periodType, periodType === "week" ? dayOfWeek : null, periodType === "month" ? dayOfMonth : null, timeCentral)}
           disabled={loading}
           className="rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
         >

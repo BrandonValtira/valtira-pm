@@ -466,8 +466,12 @@ export function ResourcePlanningClient() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const projectNames = Array.from(new Set(allocations.map((a) => a.project_name))).sort();
   const getDisplayTitle = (name: string) => projectMeta[name]?.display_title?.trim() || name;
+  const projectNames = Array.from(
+    new Set([...projects, ...allocations.map((a) => a.project_name)])
+  ).sort((a, b) =>
+    getDisplayTitle(a).localeCompare(getDisplayTitle(b), undefined, { sensitivity: "base" })
+  );
   function getLinkedProjectsLabel(name: string): { label: string; tooltip?: string; unlinked?: boolean } {
     const ids = projectMeta[name]?.harvest_project_ids ?? [];
     const storedNames = projectMeta[name]?.harvest_project_names ?? [];
@@ -479,7 +483,10 @@ export function ResourcePlanningClient() {
   }
   const q = projectSearchQuery.trim().toLowerCase();
   const filteredProjectNames = q
-    ? projectNames.filter((name) => name.toLowerCase().includes(q))
+    ? projectNames.filter(
+        (name) =>
+          getDisplayTitle(name).toLowerCase().includes(q) || name.toLowerCase().includes(q)
+      )
     : projectNames;
   const searchSuggestions = q ? filteredProjectNames.slice(0, 8) : [];
 

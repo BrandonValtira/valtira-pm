@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS reports (
   period_end DATE NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'pending_approval', 'approved', 'sent', 'rejected')),
   harvest_data_snapshot JSONB,
+  report_format TEXT NOT NULL DEFAULT 'standard' CHECK (report_format IN ('standard', 'budget_allocation')),
   pdf_storage_path TEXT,
   approved_at TIMESTAMPTZ,
   approved_by_user_id UUID REFERENCES users(id),
@@ -113,6 +114,7 @@ CREATE TABLE IF NOT EXISTS report_automations (
   day_of_month SMALLINT,
   time_utc TEXT NOT NULL,
   is_active BOOLEAN NOT NULL DEFAULT true,
+  report_format TEXT NOT NULL DEFAULT 'standard' CHECK (report_format IN ('standard', 'budget_allocation')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

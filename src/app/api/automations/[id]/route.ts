@@ -42,7 +42,9 @@ export async function PATCH(
   if (body.periodType === "month" || body.periodType === "week") updates.period_type = body.periodType;
   if (typeof body.timeUtc === "string" && /^\d{1,2}:\d{2}$/.test(body.timeUtc)) updates.time_utc = body.timeUtc;
   if (typeof body.dayOfWeek === "number" && body.dayOfWeek >= 0 && body.dayOfWeek <= 6) updates.day_of_week = body.dayOfWeek;
-  if (typeof body.dayOfMonth === "number" && body.dayOfMonth >= 1 && body.dayOfMonth <= 28) updates.day_of_month = body.dayOfMonth;
+  if (body.reportFormat === "budget_allocation" || body.reportFormat === "standard") {
+    updates.report_format = body.reportFormat;
+  }
   const { data, error } = await supabase
     .from("report_automations")
     .update(updates)
