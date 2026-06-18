@@ -234,7 +234,6 @@ export function ResourcePlanningClient() {
   const [utilizationFilter, setUtilizationFilter] = useState<"all" | "least" | "most" | "coming-free">("all");
   const [harvestProjectIdToName, setHarvestProjectIdToName] = useState<Record<number, string>>({});
   const [editProjectName, setEditProjectName] = useState<string | null>(null);
-  const [editProjectTitleDraft, setEditProjectTitleDraft] = useState("");
   const [addProjectDisplayNameDraft, setAddProjectDisplayNameDraft] = useState("");
   /** Harvest directory for Utilization tab; errors must not fall back to allocation-only names. */
   const [harvestTeamLoad, setHarvestTeamLoad] = useState<HarvestTeamLoadState>({ status: "loading" });
@@ -1115,10 +1114,10 @@ export function ResourcePlanningClient() {
                         <div className="absolute right-0 top-full z-30 mt-0.5 min-w-[120px] rounded border border-neutral-200 bg-white py-1 shadow-lg">
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setOpenProjectMenu(null);
                               setEditProjectName(projectName);
-                              setEditProjectTitleDraft(projectMeta[projectName]?.display_title ?? "");
                             }}
                             className="w-full px-2 py-1.5 text-left text-xs text-neutral-700 hover:bg-neutral-50"
                           >
@@ -1473,21 +1472,21 @@ export function ResourcePlanningClient() {
         />
       )}
 
-      {editProjectName && (
-        <EditProjectModal
-          key={editProjectName}
-          projectName={editProjectName}
-          displayTitle={editProjectTitleDraft}
-          onDisplayTitleChange={setEditProjectTitleDraft}
-          harvestProjectIds={projectMeta[editProjectName]?.harvest_project_ids ?? []}
-          onClose={() => { setEditProjectName(null); setEditProjectTitleDraft(""); }}
-          onSaved={() => {
-            setEditProjectName(null);
-            setEditProjectTitleDraft("");
-            fetchMeta();
-          }}
-        />
-      )}
+      {editProjectName &&
+        createPortal(
+          <EditProjectModal
+            key={editProjectName}
+            projectName={editProjectName}
+            initialDisplayTitle={projectMeta[editProjectName]?.display_title ?? ""}
+            harvestProjectIds={projectMeta[editProjectName]?.harvest_project_ids ?? []}
+            onClose={() => setEditProjectName(null)}
+            onSaved={() => {
+              setEditProjectName(null);
+              fetchMeta();
+            }}
+          />,
+          document.body
+        )}
     </div>
   );
 }
@@ -1749,19 +1748,20 @@ function AddProjectFromHarvestModal({
 
 function EditProjectModal({
   projectName,
-  displayTitle,
-  onDisplayTitleChange,
+  initialDisplayTitle,
   harvestProjectIds,
   onClose,
   onSaved,
 }: {
   projectName: string;
-  displayTitle: string;
-  onDisplayTitleChange: (value: string) => void;
+  initialDisplayTitle: string;
   harvestProjectIds: number[];
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const [titleDraft, setTitleDraft] = useState(
+    () => initialDisplayTitle.trim() || projectName
+  );
   const [harvestProjects, setHarvestProjects] = useState<HarvestProject[]>([]);
   const [selectedClient, setSelectedClient] = useState<string | "">("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set(harvestProjectIds));
@@ -1810,12 +1810,12 @@ function EditProjectModal({
     setSaving(true);
     setError("");
     try {
-      const title = displayTitle.trim();
+      const title = titleDraft.trim();
       const res = await fetch(`/api/resource-planning/projects/${encodeURIComponent(projectName)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          display_title: title || null,
+          display_title: title === projectName ? null : title || null,
           harvest_project_ids: Array.from(selectedIds),
           harvest_project_names: harvestProjects.filter((p) => selectedIds.has(p.id)).map((p) => p.name),
         }),
@@ -1840,8 +1840,14 @@ function EditProjectModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-2xl rounded-xl border border-neutral-200 bg-white p-4 shadow-xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="w-full max-w-2xl rounded-xl border border-neutral-200 bg-white p-4 shadow-xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <h3 className="text-base font-semibold text-neutral-900">Edit project</h3>
         <p className="mt-0.5 text-xs text-neutral-500">
           Update the display name and link Harvest projects when ready. Leave Harvest unlinked for draft or future work.
@@ -1851,11 +1857,15 @@ function EditProjectModal({
           <label className="block text-xs font-medium text-neutral-600">Display name</label>
           <input
             type="text"
-            value={displayTitle}
-            onChange={(e) => onDisplayTitleChange(e.target.value)}
-            placeholder={projectName}
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            placeholder="e.g. Q1 Support"
+            autoFocus
             className="mt-0.5 w-full rounded border border-neutral-300 px-2.5 py-1.5 text-sm"
           />
+          <p className="mt-1 text-xs text-neutral-500">
+            Internal key: <span className="font-mono text-neutral-600">{projectName}</span>
+          </p>
         </div>
         <div className="mt-3">
           <label className="block text-xs font-medium text-neutral-600">Client</label>
