@@ -176,7 +176,23 @@ CREATE TABLE IF NOT EXISTS resource_planning_projects (
   display_title TEXT,
   harvest_project_ids INTEGER[] NOT NULL DEFAULT '{}',
   harvest_project_names TEXT[] NOT NULL DEFAULT '{}',
+  jira_project_keys TEXT[] NOT NULL DEFAULT '{}',
+  contract_expiry_date DATE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE resource_planning_projects ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "resource_planning_projects_all" ON resource_planning_projects FOR ALL USING (true);
+
+-- SOW PDFs per resource planning project
+CREATE TABLE IF NOT EXISTS resource_planning_project_files (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_name TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  storage_path TEXT NOT NULL,
+  file_type TEXT NOT NULL DEFAULT 'sow' CHECK (file_type IN ('sow', 'pdf_note', 'meet_recording')),
+  metadata JSONB NOT NULL DEFAULT '{}',
+  uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_rp_project_files_project ON resource_planning_project_files(project_name);
+ALTER TABLE resource_planning_project_files ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "resource_planning_project_files_all" ON resource_planning_project_files FOR ALL USING (true);

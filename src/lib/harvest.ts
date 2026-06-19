@@ -10,6 +10,8 @@ export type HarvestProject = {
   budget_by?: string | null;
   cost_budget?: number | null;
   hourly_rate?: number | null;
+  starts_on?: string | null;
+  ends_on?: string | null;
 };
 
 export type HarvestProjectsResponse = {

@@ -26,11 +26,14 @@ export function BudgetBurnLineChart({
     );
   }
 
+  const actualPoints = points.filter((p) => p.actualCumulative != null);
+
   const plotW = WIDTH - PAD.left - PAD.right;
   const plotH = HEIGHT - PAD.top - PAD.bottom;
   const maxY = Math.max(
     totalBudgetHours,
-    ...points.map((p) => Math.max(p.actualCumulative, p.targetCumulative)),
+    ...points.map((p) => p.targetCumulative),
+    ...actualPoints.map((p) => p.actualCumulative ?? 0),
     1
   );
 
@@ -38,12 +41,19 @@ export function BudgetBurnLineChart({
     PAD.left + (points.length === 1 ? plotW / 2 : (index / (points.length - 1)) * plotW);
   const yAt = (value: number) => PAD.top + plotH - (value / maxY) * plotH;
 
-  const actualPath = points
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.actualCumulative).toFixed(1)}`)
-    .join(" ");
   const targetPath = points
     .map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.targetCumulative).toFixed(1)}`)
     .join(" ");
+
+  const actualPath =
+    actualPoints.length > 0
+      ? actualPoints
+          .map((p, idx) => {
+            const i = points.indexOf(p);
+            return `${idx === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.actualCumulative!).toFixed(1)}`;
+          })
+          .join(" ")
+      : "";
 
   const yTicks = [0, maxY * 0.5, maxY];
   const labelIndices = [0, Math.floor((points.length - 1) / 2), points.length - 1].filter(
@@ -80,17 +90,22 @@ export function BudgetBurnLineChart({
         ))}
 
         <path d={targetPath} fill="none" stroke="#a3a3a3" strokeWidth={2} strokeDasharray="5 4" />
-        <path d={actualPath} fill="none" stroke="#171717" strokeWidth={2.5} />
+        {actualPath && (
+          <path d={actualPath} fill="none" stroke="#171717" strokeWidth={2.5} />
+        )}
 
-        {points.map((p, i) => (
-          <circle
-            key={p.weekEnd}
-            cx={xAt(i)}
-            cy={yAt(p.actualCumulative)}
-            r={3}
-            fill="#171717"
-          />
-        ))}
+        {actualPoints.map((p) => {
+          const i = points.indexOf(p);
+          return (
+            <circle
+              key={p.weekEnd}
+              cx={xAt(i)}
+              cy={yAt(p.actualCumulative!)}
+              r={3}
+              fill="#171717"
+            />
+          );
+        })}
 
         {labelIndices.map((i) => (
           <text
@@ -107,11 +122,11 @@ export function BudgetBurnLineChart({
       <div className="mt-2 flex flex-wrap gap-4 text-xs text-neutral-700">
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-0.5 w-5 bg-neutral-900" />
-          Actual burn
+          Actual burn (through today)
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-0 w-5 border-t-2 border-dashed border-neutral-400" />
-          Target pace
+          Target pace (full contract)
         </span>
         <span className="text-neutral-500">
           {formatDateOnly(contractStart)} – {formatDateOnly(contractEnd)}

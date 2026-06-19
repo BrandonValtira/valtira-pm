@@ -4,6 +4,7 @@ import { getHarvestProjectBudgetReport } from "@/lib/harvest";
 import { getJiraAccess } from "@/lib/jira-auth";
 import { getJiraDoneLastMonthOAuth, getJiraRecentIssuesOAuth } from "@/lib/jira";
 import { extractPdfText } from "@/lib/pdf-text";
+import { RP_SOW_BUCKET } from "@/lib/resource-planning-projects";
 
 const BUCKET = "project-files";
 const SIXTY_DAYS_MS = 60 * 24 * 60 * 60 * 1000;
@@ -251,6 +252,260 @@ NEXT STEPS
   const result = await model.generateContent(prompt);
   const response = result.response;
   const text = response.text();
+  if (!text) throw new Error("Empty response from Gemini");
+  return { summary: text, jiraReturnedNothing };
+}
+
+type RpProjectRow = {
+  project_name: string;
+  display_title: string | null;
+  harvest_project_ids: number[] | null;
+  jira_project_keys: string[] | null;
+};
+
+async function appendPdfMaterialFromStorage(
+  supabase: ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>,
+  materialParts: string[],
+  bucket: string,
+  fileName: string,
+  storagePath: string,
+  uploadedAt: string,
+  label: string
+) {
+  let pdfContext = `[${label}: "${fileName}" (uploaded ${uploadedAt})]`;
+  try {
+    const { data: blob, error: downloadError } = await supabase.storage.from(bucket).download(storagePath);
+    if (downloadError) {
+      pdfContext += `\n(Storage error: ${downloadError.message})`;
+    } else if (blob) {
+      const buffer = Buffer.from(await blob.arrayBuffer());
+      const text = await extractPdfText(buffer);
+      if (text) {
+        const excerpt = text.length > MAX_PDF_CHARS ? text.slice(0, MAX_PDF_CHARS) + "\n[... truncated]" : text;
+        pdfContext += "\n" + excerpt;
+      } else {
+        pdfContext += "\n(Text could not be extracted or PDF is empty.)";
+      }
+    } else {
+      pdfContext += "\n(File not found in storage.)";
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    pdfContext += `\n(Text could not be extracted: ${msg.slice(0, 80)}.)`;
+  }
+  materialParts.push(pdfContext);
+}
+
+async function appendJiraAndHarvestSections(
+  supabase: ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>,
+  userId: string,
+  harvestIds: number[],
+  jiraKeys: string[]
+): Promise<{ jiraSection: string; harvestSection: string; jiraReturnedNothing: boolean }> {
+  let jiraSection = "";
+  let harvestSection = "";
+  let jiraReturnedNothing = false;
+
+  const jiraAccess = await getJiraAccess(userId);
+  if (jiraKeys.length > 0 && !jiraAccess) {
+    console.warn("[Jira context] Project has jira keys but no access:", { jiraKeys, userId: userId.slice(0, 8) });
+    jiraSection = "[Jira: connect in Settings or reconnect to refresh access.]";
+    jiraReturnedNothing = true;
+  } else if (jiraKeys.length > 0 && jiraAccess) {
+    try {
+      let doneLastMonth: Awaited<ReturnType<typeof getJiraDoneLastMonthOAuth>> = [];
+      const recent = await getJiraRecentIssuesOAuth(jiraAccess.cloudId, jiraAccess.accessToken, jiraKeys, 25);
+      try {
+        doneLastMonth = await getJiraDoneLastMonthOAuth(jiraAccess.cloudId, jiraAccess.accessToken, jiraKeys, 50);
+      } catch (doneErr) {
+        const doneMsg = doneErr instanceof Error ? doneErr.message : String(doneErr);
+        console.warn("[Jira context] Done-in-last-month query failed (using recent only):", doneMsg.slice(0, 200));
+      }
+      if (doneLastMonth.length === 0 && recent.length === 0) {
+        console.warn("[Jira context] No issues returned for keys:", jiraKeys);
+        jiraReturnedNothing = true;
+      }
+      const doneLines = doneLastMonth.length > 0
+        ? "Issues moved to Done in the past 30 days:\n" +
+          doneLastMonth.map((i) => `- ${i.key}: ${i.summary} | Updated: ${(i.updated || "").slice(0, 10)}`).join("\n")
+        : "(No issues moved to Done in the past 30 days.)";
+      const recentLines = recent.length > 0
+        ? "Recent activity (all statuses):\n" +
+          recent.map((i) => `- ${i.key}: ${i.summary} | Status: ${i.status} | Updated: ${(i.updated || "").slice(0, 10)}`).join("\n")
+        : "";
+      jiraSection = doneLines + (recentLines ? "\n\n" + recentLines : "");
+      if (recent.length === 0 && doneLastMonth.length === 0) {
+        jiraSection += "\n(No issues found for project keys: " + jiraKeys.join(", ") + ". Check that these match your Jira board keys.)";
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[Jira context] API error:", msg);
+      jiraSection = `[Jira could not be loaded: ${msg.slice(0, 120)}.]`;
+      jiraReturnedNothing = true;
+    }
+  }
+
+  const harvest = await getHarvestAccess(userId);
+  if (harvestIds.length > 0 && harvest) {
+    try {
+      const budgetReport = await getHarvestProjectBudgetReport(harvest.accountId, harvest.accessToken);
+      const projectBudgets = budgetReport.filter((r) => harvestIds.includes(r.project_id));
+      if (projectBudgets.length > 0) {
+        harvestSection = projectBudgets
+          .map(
+            (r) =>
+              `${r.project_name}: budget ${r.budget} hours, spent ${r.budget_spent.toFixed(1)}, remaining ${r.budget_remaining.toFixed(1)}`
+          )
+          .join("\n");
+      }
+    } catch {
+      harvestSection = "[Harvest is linked but budget data could not be loaded.]";
+    }
+  }
+
+  return { jiraSection, harvestSection, jiraReturnedNothing };
+}
+
+/** Build context for a resource planning project (includes uploaded SOWs as materials). */
+export async function buildResourcePlanningProjectContext(
+  supabase: ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>,
+  projectName: string,
+  project: RpProjectRow,
+  userId: string
+): Promise<BuildProjectContextResult> {
+  const harvestIds = (project.harvest_project_ids ?? []) as number[];
+  const jiraKeys = (project.jira_project_keys ?? []) as string[];
+  const now = Date.now();
+  const googleParts: string[] = [];
+  const materialParts: string[] = [];
+
+  const { data: files } = await supabase
+    .from("resource_planning_project_files")
+    .select("id, file_name, storage_path, file_type, uploaded_at")
+    .eq("project_name", projectName)
+    .order("uploaded_at", { ascending: false });
+
+  const driveToken = await getGoogleAccessToken(userId);
+
+  for (const f of files ?? []) {
+    const uploadedAt = new Date(f.uploaded_at).getTime();
+    if (f.file_type === "meet_recording") {
+      if (now - uploadedAt > SIXTY_DAYS_MS) continue;
+      let meetContext = `[Meeting recording: "${f.file_name}" (${f.uploaded_at})]`;
+      if (driveToken) {
+        try {
+          const text = await fetchDriveDocText(driveToken, f.storage_path);
+          if (text) {
+            const excerpt =
+              text.length > MAX_MEET_RECORDING_CHARS
+                ? text.slice(0, MAX_MEET_RECORDING_CHARS) + "\n[... truncated]"
+                : text;
+            meetContext += "\n" + excerpt;
+          }
+        } catch {
+          meetContext += "\n(Text could not be loaded from Drive.)";
+        }
+      }
+      googleParts.push(meetContext);
+    }
+    if (f.file_type === "pdf_note" || f.file_type === "sow") {
+      await appendPdfMaterialFromStorage(
+        supabase,
+        materialParts,
+        RP_SOW_BUCKET,
+        f.file_name,
+        f.storage_path,
+        f.uploaded_at,
+        f.file_type === "sow" ? "SOW PDF" : "PDF"
+      );
+    }
+  }
+
+  const { jiraSection, harvestSection, jiraReturnedNothing } = await appendJiraAndHarvestSections(
+    supabase,
+    userId,
+    harvestIds,
+    jiraKeys
+  );
+
+  const contextParts: string[] = [];
+  if (googleParts.length > 0) contextParts.push("=== GOOGLE TRANSCRIPTS ===\n" + googleParts.join("\n\n"));
+  if (materialParts.length > 0) contextParts.push("=== ADDITIONAL MATERIALS ===\n" + materialParts.join("\n\n"));
+  if (jiraSection) contextParts.push("=== JIRA ===\n" + jiraSection);
+  if (harvestSection) contextParts.push("=== HARVEST BUDGET ===\n" + harvestSection);
+  return { contextParts, jiraReturnedNothing };
+}
+
+export async function generateResourcePlanningProjectSummary(
+  supabase: ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>,
+  projectName: string,
+  project: RpProjectRow,
+  userId: string
+): Promise<GenerateProjectSummaryResult> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const displayName = project.display_title?.trim() || project.project_name;
+  const { contextParts, jiraReturnedNothing } = await buildResourcePlanningProjectContext(
+    supabase,
+    projectName,
+    project,
+    userId
+  );
+
+  if (contextParts.length === 0) {
+    return {
+      summary:
+        "Add Jira boards, Google Meet recordings, or PDFs (meeting notes, SOWs) in Project Context below, then generate a summary to see project mood, budget status, and next steps.",
+      jiraReturnedNothing: false,
+    };
+  }
+
+  if (!apiKey?.trim()) {
+    return {
+      summary: [
+        "Project: " + displayName,
+        "",
+        "Context gathered (Gemini API key not set; summary is placeholder). In Vercel: set GEMINI_API_KEY in Settings → Environment Variables for Production and redeploy, then regenerate.",
+        ...contextParts,
+        "",
+        "Budget status: See Harvest budget section above if available.",
+        "Next steps: Review Jira issues and any uploaded materials for action items.",
+      ].join("\n"),
+      jiraReturnedNothing,
+    };
+  }
+
+  const { GoogleGenerativeAI } = await import("@google/generative-ai");
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  const prompt = `You are a project management assistant. Using ONLY the context below, write a CONCISE project summary for a PM before a client meeting.
+
+Rules: Be brief. Summarize only the most important information. Do NOT regurgitate or list everything. One to three sentences per section is enough.
+
+Context:
+---
+${contextParts.join("\n\n")}
+---
+
+Respond with exactly these section headers on their own lines (no numbers, no colons after the header). Put PROJECT MOOD first.
+
+PROJECT MOOD
+One line only. Choose one: On track (green) | Needs attention (yellow) | At risk (red) | Unknown / insufficient context (gray).
+
+GOOGLE TRANSCRIPTS
+1–3 sentences. Key points from meeting transcripts only. If no transcripts, say "No meeting transcripts in context."
+
+ADDITIONAL MATERIALS
+1–3 sentences. Key points from PDFs/uploaded materials only. If none, say "No additional materials in context."
+
+JIRA
+1–3 sentences. Focus on tickets moved to Done in the past month: count and 1–2 notable items. Do not list every ticket. If no Jira data, say "No Jira data in context."
+
+NEXT STEPS
+3–5 brief bullet points. Use a single leading dash per line (e.g. "- "). Action items only.`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text();
   if (!text) throw new Error("Empty response from Gemini");
   return { summary: text, jiraReturnedNothing };
 }

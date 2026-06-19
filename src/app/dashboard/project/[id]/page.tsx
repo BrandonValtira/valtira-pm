@@ -21,7 +21,6 @@ export default async function ProjectPage({
     { data: project, error },
     { data: reports },
     { data: automations },
-    { data: integrations },
   ] = await Promise.all([
     supabase
       .from("projects")
@@ -39,15 +38,7 @@ export default async function ProjectPage({
       .select("id, period_type, day_of_week, day_of_month, time_utc, is_active, title, requires_approval, report_format, created_at")
       .eq("project_id", id)
       .order("created_at", { ascending: true }),
-    supabase
-      .from("user_integrations")
-      .select("provider")
-      .eq("user_id", userId)
-      .not("access_token", "is", null),
   ]);
-  const connectedProviders = new Set((integrations ?? []).map((r) => r.provider as string));
-  const driveConnected = connectedProviders.has("google_drive");
-  const jiraConnected = connectedProviders.has("jira");
 
   if (error || !project) notFound();
 
@@ -65,8 +56,6 @@ export default async function ProjectPage({
       reports={reports ?? []}
       automations={automations ?? []}
       openReportId={openReport ?? undefined}
-      driveConnected={driveConnected}
-      jiraConnected={jiraConnected}
     />
   );
 }

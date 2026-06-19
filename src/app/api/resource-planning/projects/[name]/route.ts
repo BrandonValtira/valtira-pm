@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { RP_SOW_BUCKET } from "@/lib/resource-planning-projects";
 import { NextResponse } from "next/server";
 
 /** Get project metadata (display_title, harvest_project_ids). */
@@ -16,7 +17,7 @@ export async function GET(
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("resource_planning_projects")
-    .select("project_name, display_title, harvest_project_ids, harvest_project_names")
+    .select("project_name, display_title, harvest_project_ids, harvest_project_names, jira_project_keys")
     .eq("project_name", name)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -51,17 +52,30 @@ export async function PATCH(
     body.harvest_project_names !== undefined
       ? (Array.isArray(body.harvest_project_names) ? body.harvest_project_names.map((n: unknown) => String(n)) : [])
       : undefined;
+  const jira_project_keys =
+    body.jira_project_keys !== undefined
+      ? (Array.isArray(body.jira_project_keys)
+          ? body.jira_project_keys.map((k: unknown) => String(k).trim()).filter(Boolean)
+          : [])
+      : undefined;
   const supabase = createAdminClient();
-  const payload: { updated_at: string; display_title?: string | null; harvest_project_ids?: number[]; harvest_project_names?: string[] } = {
+  const payload: {
+    updated_at: string;
+    display_title?: string | null;
+    harvest_project_ids?: number[];
+    harvest_project_names?: string[];
+    jira_project_keys?: string[];
+  } = {
     updated_at: new Date().toISOString(),
   };
   if (display_title !== undefined) payload.display_title = display_title;
   if (harvest_project_ids !== undefined) payload.harvest_project_ids = harvest_project_ids;
   if (harvest_project_names !== undefined) payload.harvest_project_names = harvest_project_names;
+  if (jira_project_keys !== undefined) payload.jira_project_keys = jira_project_keys;
   const { data, error } = await supabase
     .from("resource_planning_projects")
     .upsert({ project_name: name, ...payload }, { onConflict: "project_name" })
-    .select("project_name, display_title, harvest_project_ids, harvest_project_names")
+    .select("project_name, display_title, harvest_project_ids, harvest_project_names, jira_project_keys")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
@@ -79,6 +93,16 @@ export async function DELETE(
   const name = decodeURIComponent((await params).name);
   if (!name) return NextResponse.json({ error: "Project name required" }, { status: 400 });
   const supabase = createAdminClient();
+
+  const { data: sowFiles } = await supabase
+    .from("resource_planning_project_files")
+    .select("storage_path")
+    .eq("project_name", name);
+  if (sowFiles?.length) {
+    await supabase.storage.from(RP_SOW_BUCKET).remove(sowFiles.map((f) => f.storage_path));
+    await supabase.from("resource_planning_project_files").delete().eq("project_name", name);
+  }
+
   await supabase.from("resource_planning_projects").delete().eq("project_name", name);
   const { error } = await supabase
     .from("resource_planning_allocations")

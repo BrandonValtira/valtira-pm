@@ -5,7 +5,7 @@ import {
   type BudgetAllocationData,
   type BudgetAllocationTimeEntry,
 } from "@/lib/budget-allocation-report";
-import { buildBudgetBurnSnapshot, getContractBounds, type BudgetBurnSnapshot } from "@/lib/budget-burn-chart";
+import { buildBudgetBurnSnapshot, resolveContractBoundsFromHarvest, type BudgetBurnSnapshot } from "@/lib/budget-burn-chart";
 import { getHarvestProjects, getHarvestTimeEntries, getHarvestProjectBudgetReport, type HarvestProject, type HarvestProjectBudgetResult, type HarvestTimeEntry } from "@/lib/harvest";
 import { getHarvestAccess } from "@/lib/harvest-auth";
 import {
@@ -92,6 +92,8 @@ async function buildHarvestSnapshot(
         budget_by: p.budget_by ?? null,
         budget_spent: budgetRow?.budget_spent ?? null,
         budget_remaining: budgetRow?.budget_remaining ?? null,
+        starts_on: p.starts_on ?? null,
+        ends_on: p.ends_on ?? null,
       };
     });
 
@@ -121,7 +123,12 @@ async function buildHarvestSnapshot(
     snapshot.timeEntries = mappedEntries;
 
     const contractExpiry = project.contract_expiry_date as string | null | undefined;
-    const { start: contractStart } = getContractBounds(contractExpiry, end);
+    const { start: contractStart } = resolveContractBoundsFromHarvest(
+      harvestProjectsForReport,
+      contractExpiry,
+      harvestProjectsForReport.map((p) => p.name),
+      end
+    );
     const contractEntries = await getHarvestTimeEntries(
       harvest.accountId,
       harvest.accessToken,
@@ -136,7 +143,8 @@ async function buildHarvestSnapshot(
       start,
       end,
       contractExpiry,
-      harvestProjectsForReport.map((p) => p.name)
+      harvestProjectsForReport.map((p) => p.name),
+      end
     );
   }
 

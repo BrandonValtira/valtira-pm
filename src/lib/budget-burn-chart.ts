@@ -2,7 +2,8 @@ import type { HarvestTimeEntry } from "@/lib/harvest";
 
 export type BudgetBurnChartPoint = {
   weekEnd: string;
-  actualCumulative: number;
+  /** Null for future weeks — actual line stops at the as-of date. */
+  actualCumulative: number | null;
   targetCumulative: number;
 };
 
@@ -22,6 +23,15 @@ export type BudgetBurnSnapshot = {
 type HarvestProjectBudget = {
   budget: number | null;
   budget_spent?: number | null;
+  starts_on?: string | null;
+  ends_on?: string | null;
+  name?: string;
+};
+
+export type HarvestProjectContractDates = {
+  starts_on?: string | null;
+  ends_on?: string | null;
+  name?: string;
 };
 
 export type BudgetBurnDisplayVariance = {
@@ -104,8 +114,13 @@ export function buildBudgetBurnDisplay(params: {
     ? formatContractDateRange(contractBounds.start, contractBounds.end)
     : "Contract";
   const contractTargetToDate =
-    burn?.points.length && burn.points[burn.points.length - 1]
-      ? burn.points[burn.points.length - 1].targetCumulative
+    burn && contractBounds
+      ? contractTargetHoursToDate(
+          totalBudget,
+          contractBounds.start,
+          contractBounds.end,
+          periodEnd
+        )
       : contractBounds
         ? contractTargetHoursToDate(
             totalBudget,
@@ -213,6 +228,23 @@ const MONTH_PARSE: Record<string, number> = {
   dec: 12, december: 12,
 };
 
+/** e.g. "HSoA Support (May 2026-Apr 2027)" → { start: 2026-05-01, end: 2027-04-30 } */
+export function parseContractRangeFromLabel(text: string): { start: string; end: string } | null {
+  const match = text.match(
+    /([A-Za-z]{3,9})\s+(\d{4})\s*[-–]\s*([A-Za-z]{3,9})\s+(\d{4})/
+  );
+  if (!match) return null;
+  const startMonth = MONTH_PARSE[match[1].toLowerCase()];
+  const startYear = Number(match[2]);
+  const endMonth = MONTH_PARSE[match[3].toLowerCase()];
+  const endYear = Number(match[4]);
+  if (!startMonth || !endMonth || !startYear || !endYear) return null;
+  return {
+    start: formatYmd(new Date(startYear, startMonth - 1, 1)),
+    end: formatYmd(new Date(endYear, endMonth, 0)),
+  };
+}
+
 /** e.g. "HSoA Support (May 2026-Apr 2027)" → 2027-04-30 */
 export function parseContractEndFromLabel(text: string): string | null {
   const match = text.match(
@@ -249,6 +281,71 @@ export function getContractBounds(
   startDate.setFullYear(startDate.getFullYear() - 1);
   startDate.setDate(startDate.getDate() + 1);
   return { start: formatYmd(startDate), end };
+}
+
+function minYmd(dates: string[]): string {
+  return dates.reduce((a, b) => (parseYmd(a) <= parseYmd(b) ? a : b));
+}
+
+function maxYmd(dates: string[]): string {
+  return dates.reduce((a, b) => (parseYmd(a) >= parseYmd(b) ? a : b));
+}
+
+/** Contract window from Harvest starts_on/ends_on (union across linked projects), with name/DB fallbacks. */
+export function resolveContractBoundsFromHarvest(
+  projects: HarvestProjectContractDates[],
+  contractExpiryDate: string | null | undefined,
+  harvestProjectNames: string[],
+  anchorEnd: string
+): { start: string; end: string } {
+  const starts: string[] = [];
+  const ends: string[] = [];
+
+  for (const p of projects) {
+    if (p.starts_on?.slice(0, 10)) starts.push(p.starts_on.slice(0, 10));
+    if (p.ends_on?.slice(0, 10)) ends.push(p.ends_on.slice(0, 10));
+    if (p.name) {
+      const range = parseContractRangeFromLabel(p.name);
+      if (range) {
+        starts.push(range.start);
+        ends.push(range.end);
+      } else {
+        const endOnly = parseContractEndFromLabel(p.name);
+        if (endOnly) ends.push(endOnly);
+      }
+    }
+  }
+
+  for (const name of harvestProjectNames) {
+    const range = parseContractRangeFromLabel(name);
+    if (range) {
+      starts.push(range.start);
+      ends.push(range.end);
+    } else {
+      const endOnly = parseContractEndFromLabel(name);
+      if (endOnly) ends.push(endOnly);
+    }
+  }
+
+  if (contractExpiryDate?.slice(0, 10)) {
+    ends.push(contractExpiryDate.slice(0, 10));
+  }
+
+  const end =
+    ends.length > 0 ? maxYmd(ends) : (contractExpiryDate?.slice(0, 10) || anchorEnd.slice(0, 10));
+
+  let start: string;
+  if (starts.length > 0) {
+    start = minYmd(starts);
+  } else {
+    start = getContractBounds(end, end).start;
+  }
+
+  if (parseYmd(start) > parseYmd(end)) {
+    start = getContractBounds(end, end).start;
+  }
+
+  return { start, end };
 }
 
 const LONG_MONTH_NAMES = [
@@ -301,16 +398,24 @@ export function buildBudgetBurnSnapshot(
   periodStart: string,
   periodEnd: string,
   contractExpiryDate?: string | null,
-  harvestProjectNames: string[] = []
+  harvestProjectNames: string[] = [],
+  /** Last date for actual burn on the chart (default: report period end). Use today for live dashboards. */
+  chartAsOfDate?: string
 ): BudgetBurnSnapshot | null {
   const totalBudgetHours = harvestProjects.reduce((sum, p) => sum + (p.budget ?? 0), 0);
   if (totalBudgetHours <= 0) return null;
 
-  const resolvedExpiry = resolveContractExpiryDate(contractExpiryDate, harvestProjectNames);
-  const { start: contractStart, end: contractEnd } = getContractBounds(
-    resolvedExpiry,
+  const { start: contractStart, end: contractEnd } = resolveContractBoundsFromHarvest(
+    harvestProjects,
+    contractExpiryDate,
+    harvestProjectNames,
     periodEnd
   );
+
+  const asOfDate = (chartAsOfDate ?? periodEnd).slice(0, 10);
+  const actualThrough =
+    parseYmd(asOfDate) <= parseYmd(contractEnd) ? asOfDate : contractEnd;
+
   const contractWeeks = Math.max(
     1,
     enumerateWeekEnds(contractStart, contractEnd).length
@@ -321,18 +426,22 @@ export function buildBudgetBurnSnapshot(
   const hoursByWeekEnd = new Map<string, number>();
   for (const entry of entries) {
     const day = entry.spent_date.slice(0, 10);
-    if (day < contractStart || day > periodEnd.slice(0, 10)) continue;
+    if (day < contractStart || day > actualThrough) continue;
     const we = weekEndSaturday(day);
     hoursByWeekEnd.set(we, (hoursByWeekEnd.get(we) ?? 0) + entry.hours);
   }
 
-  const weekEnds = enumerateWeekEnds(contractStart, periodEnd.slice(0, 10));
+  const fullWeekEnds = enumerateWeekEnds(contractStart, contractEnd);
+  const actualWeekEnds = new Set(enumerateWeekEnds(contractStart, actualThrough));
+
   let cumulative = 0;
-  const points: BudgetBurnChartPoint[] = weekEnds.map((weekEnd, index) => {
-    cumulative += hoursByWeekEnd.get(weekEnd) ?? 0;
+  const points: BudgetBurnChartPoint[] = fullWeekEnds.map((weekEnd, index) => {
+    if (actualWeekEnds.has(weekEnd)) {
+      cumulative += hoursByWeekEnd.get(weekEnd) ?? 0;
+    }
     return {
       weekEnd,
-      actualCumulative: cumulative,
+      actualCumulative: actualWeekEnds.has(weekEnd) ? cumulative : null,
       targetCumulative: weeklyBudgetHours * (index + 1),
     };
   });
@@ -347,8 +456,15 @@ export function buildBudgetBurnSnapshot(
   const periodBudgetHours =
     periodType === "month" ? monthlyBudgetHours : weeklyBudgetHours;
 
+  const lastActualPoint = [...points].reverse().find((p) => p.actualCumulative != null);
   const cumulativeSpentThroughPeriod =
-    points.length > 0 ? points[points.length - 1].actualCumulative : periodActualHours;
+    lastActualPoint?.actualCumulative ??
+    entries
+      .filter((e) => {
+        const d = e.spent_date.slice(0, 10);
+        return d >= contractStart && d <= actualThrough;
+      })
+      .reduce((sum, e) => sum + e.hours, 0);
 
   return {
     totalBudgetHours,

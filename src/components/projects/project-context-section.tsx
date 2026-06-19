@@ -10,6 +10,8 @@ export type ProjectFile = {
   file_type: "transcript" | "pdf_note" | "meet_recording";
   uploaded_at: string;
   metadata?: Record<string, unknown>;
+  /** Uploaded via Statements of work — included in materials, not removable here. */
+  isSow?: boolean;
 };
 
 type AccordionPanel = "meet" | "materials" | "jira";
@@ -17,16 +19,20 @@ type AccordionPanel = "meet" | "materials" | "jira";
 type MeetRecordingDrive = { id: string; name: string; modifiedTime: string | null };
 
 export function ProjectContextSection({
-  projectId,
+  resourcePlanningProjectName,
   jiraKeys,
   driveConnected = false,
   jiraConnected = false,
+  filesRefreshKey = 0,
 }: {
-  projectId: string;
+  resourcePlanningProjectName: string;
   jiraKeys: string[];
   driveConnected?: boolean;
   jiraConnected?: boolean;
+  filesRefreshKey?: number;
 }) {
+  const projectApi = `/api/resource-planning/projects/${encodeURIComponent(resourcePlanningProjectName)}`;
+  const contextApi = `${projectApi}/context`;
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [openPanel, setOpenPanel] = useState<AccordionPanel | null>("materials");
   const [summary, setSummary] = useState<string | null>(null);
@@ -58,7 +64,8 @@ export function ProjectContextSection({
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/projects/${projectId}/context/files`)
+    setLoadingFiles(true);
+    fetch(`${contextApi}/files`)
       .then((res) => res.json())
       .then((data) => {
         if (!cancelled && Array.isArray(data.files)) setFiles(data.files);
@@ -68,17 +75,19 @@ export function ProjectContextSection({
         if (!cancelled) setLoadingFiles(false);
       });
     return () => { cancelled = true; };
-  }, [projectId]);
+  }, [contextApi, filesRefreshKey]);
 
   function removeFile(id: string) {
+    const file = files.find((f) => f.id === id);
+    if (file?.isSow) return;
     setFiles((prev) => prev.filter((f) => f.id !== id));
     setSummaryStale(true);
-    fetch(`/api/projects/${projectId}/context/files/${id}`, { method: "DELETE" }).catch(() => {});
+    fetch(`${contextApi}/files/${id}`, { method: "DELETE" }).catch(() => {});
   }
 
   function onFilesChange() {
     setSummaryStale(true);
-    fetch(`/api/projects/${projectId}/context/files`)
+    fetch(`${contextApi}/files`)
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data.files)) setFiles(data.files);
@@ -133,7 +142,7 @@ export function ProjectContextSection({
   async function addMeetRecording(driveFileId: string, fileName: string) {
     setAddingMeetId(driveFileId);
     try {
-      const res = await fetch(`/api/projects/${projectId}/context/meet-recordings`, {
+      const res = await fetch(`${contextApi}/meet-recordings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ driveFileId, fileName }),
@@ -166,10 +175,10 @@ export function ProjectContextSection({
     setSummaryStale(true);
     setJiraSaving(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}`, {
+      const res = await fetch(projectApi, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jiraProjectKeys: next }),
+        body: JSON.stringify({ jira_project_keys: next }),
       });
       if (res.ok) router.refresh();
       else setSelectedJiraKeys(jiraKeys);
@@ -184,7 +193,7 @@ export function ProjectContextSection({
     setLoadingSummary(true);
     setSummaryStale(false);
     try {
-      const res = await fetch(`/api/projects/${projectId}/context/summary`, { method: "POST" });
+      const res = await fetch(`${contextApi}/summary`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (res.ok && typeof data.summary === "string") {
         setSummary(data.summary);
@@ -209,7 +218,7 @@ export function ProjectContextSection({
     setChatMessages((prev) => [...prev, { role: "user", content: q }]);
     setLoadingAsk(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/context/ask`, {
+      const res = await fetch(`${contextApi}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: q }),
@@ -232,7 +241,7 @@ export function ProjectContextSection({
   const overlayVisible = showButtonOverlay || showSpinnerOverlay;
 
   return (
-    <section className="mt-8 rounded-xl border border-neutral-200 bg-white p-6">
+    <section className="mt-8 rounded-xl border border-neutral-200 bg-white p-6 scroll-mt-4">
       <div className="grid w-full gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <h2 className="text-lg font-medium text-neutral-900">Project Summary</h2>
@@ -277,20 +286,15 @@ export function ProjectContextSection({
               </div>
             )}
             {hasContext && (jiraReturnedNothing === true || (selectedJiraKeys.length > 0 && !!summary && /no jira data|no issues found for project/i.test(summary))) && (
-              <a
-                href={`/api/projects/${projectId}/context/jira-debug`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-2 inline-block text-xs text-neutral-500 hover:text-neutral-700 underline"
-              >
-                Jira not loading? Debug
-              </a>
+              <p className="mt-2 text-xs text-neutral-500">
+                Jira not loading? Reconnect Jira on the dashboard, then confirm board keys in the Jira panel.
+              </p>
             )}
             {!overlayVisible && (
               <div className={`mt-4 min-h-[200px] ${summary ? "flex flex-col max-h-[420px]" : ""}`}>
                 {!hasContext ? (
                   <p className="text-sm text-neutral-600">
-                    Add Jira boards (in project settings or the Jira panel), Google Meet recordings, or PDFs (meeting notes, SOWs) to build context. Then generate a summary.
+                    Add Jira boards, Google Meet recordings, or PDFs below. Uploaded SOWs are included in additional materials automatically.
                   </p>
                 ) : (
                   <div className="overflow-y-auto flex-1 min-h-0 pr-1">
@@ -470,9 +474,9 @@ export function ProjectContextSection({
           {openPanel === "materials" && (
             <div className="border-t border-neutral-200 px-4 pb-4 pt-2">
               <p className="text-xs text-neutral-600">
-                Upload PDFs: meeting notes, SOWs, or other context. You can view and remove them below.
+                PDFs for meeting notes and other context. SOWs uploaded above appear here automatically.
               </p>
-              <ProjectMaterialsUpload projectId={projectId} onUpload={onFilesChange} />
+              <ProjectMaterialsUpload contextApi={contextApi} onUpload={onFilesChange} />
               <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
                 {loadingFiles ? (
                   <li className="text-sm text-neutral-500">Loading…</li>
@@ -481,17 +485,28 @@ export function ProjectContextSection({
                     .filter((f) => f.file_type === "pdf_note")
                     .map((f) => (
                       <li key={f.id} className="flex items-center justify-between gap-2 rounded border border-neutral-100 bg-neutral-50/50 px-2 py-1.5 text-sm">
-                        <span className="min-w-0 truncate">{f.file_name}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeFile(f.id)}
-                          className="shrink-0 rounded p-1 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-900"
-                          aria-label={`Remove ${f.file_name}`}
-                        >
-                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
+                        <span className="min-w-0 truncate">
+                          {f.file_name}
+                          {f.isSow ? (
+                            <span className="ml-1.5 rounded bg-neutral-200 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-neutral-600">
+                              SOW
+                            </span>
+                          ) : null}
+                        </span>
+                        {f.isSow ? (
+                          <span className="shrink-0 text-xs text-neutral-500">Statements of work</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => removeFile(f.id)}
+                            className="shrink-0 rounded p-1 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-900"
+                            aria-label={`Remove ${f.file_name}`}
+                          >
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        )}
                       </li>
                     ))
                 )}
@@ -625,10 +640,10 @@ function FormattedSummary({ text }: { text: string }) {
 }
 
 function ProjectMaterialsUpload({
-  projectId,
+  contextApi,
   onUpload,
 }: {
-  projectId: string;
+  contextApi: string;
   onUpload: () => void;
 }) {
   const [uploading, setUploading] = useState(false);
@@ -646,7 +661,7 @@ function ProjectMaterialsUpload({
     try {
       const form = new FormData();
       form.set("file", file);
-      const res = await fetch(`/api/projects/${projectId}/context/files/upload`, {
+      const res = await fetch(`${contextApi}/files/upload`, {
         method: "POST",
         body: form,
       });

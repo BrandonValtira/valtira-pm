@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ComponentProps } from "react";
 import { useRef, useState } from "react";
-import { ProjectContextSection } from "./project-context-section";
 import { ReportSection } from "./report-section";
 
 export function ProjectContent({
@@ -16,8 +15,6 @@ export function ProjectContent({
   reports,
   automations,
   openReportId,
-  driveConnected,
-  jiraConnected,
 }: {
   projectId: string;
   projectName: string;
@@ -27,8 +24,6 @@ export function ProjectContent({
   reports: ComponentProps<typeof ReportSection>["initialReports"];
   automations: ComponentProps<typeof ReportSection>["initialAutomations"];
   openReportId?: string;
-  driveConnected?: boolean;
-  jiraConnected?: boolean;
 }) {
   const router = useRouter();
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -46,7 +41,7 @@ export function ProjectContent({
       const res = await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setDeleteError(data.error || "Failed to delete project");
+        setDeleteError(data.error || "Failed to delete report");
         return;
       }
       router.push("/dashboard");
@@ -140,8 +135,6 @@ export function ProjectContent({
         actionsContainerRef={actionsRef}
         actionsSlotReady={slotReady}
       />
-      <ProjectContextSection projectId={projectId} jiraKeys={jiraKeys} driveConnected={driveConnected} jiraConnected={jiraConnected} />
-
       <div className="mt-12">
         {!deleteSectionOpen ? (
           <button
@@ -149,13 +142,13 @@ export function ProjectContent({
             onClick={() => setDeleteSectionOpen(true)}
             className="rounded-lg border border-red-300 bg-transparent px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
           >
-            Delete project
+            Delete report
           </button>
         ) : (
           <div className="rounded-xl border border-red-200 bg-red-50/50 p-4">
-            <h2 className="text-sm font-medium text-red-900">Delete project</h2>
+            <h2 className="text-sm font-medium text-red-900">Delete report</h2>
             <p className="mt-1 text-sm text-red-800">
-              Permanently delete this project and all its reports, automations, and history. This cannot be undone.
+              Permanently delete this report, including all generated issues, automations, and history. This cannot be undone.
             </p>
             {deleteError && <p className="mt-2 text-sm text-red-600">{deleteError}</p>}
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -166,7 +159,7 @@ export function ProjectContent({
                   onChange={(e) => setDeleteConfirm(e.target.checked)}
                   className="rounded border-red-300 text-red-600 focus:ring-red-500"
                 />
-                I understand, delete this project
+                I understand, delete this report
               </label>
               <button
                 type="button"
@@ -174,7 +167,7 @@ export function ProjectContent({
                 disabled={!deleteConfirm || deleteLoading}
                 className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:hover:bg-white"
               >
-                {deleteLoading ? "Deleting…" : "Delete project"}
+                {deleteLoading ? "Deleting…" : "Delete report"}
               </button>
               <button
                 type="button"

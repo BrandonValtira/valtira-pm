@@ -4,6 +4,14 @@ import Link from "next/link";
 import { displayFirstName } from "@/lib/vacation-name-match";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { EditRpProjectModal } from "@/components/projects/edit-rp-project-modal";
+import { MiniBudgetIndicator } from "@/components/projects/mini-budget-indicator";
+import type { ResourcePlanningBudgetSummary } from "@/lib/fetch-resource-planning-budget";
+import {
+  confirmDeleteResourcePlanningProject,
+  deleteResourcePlanningProject,
+  rpProjectSowLink,
+} from "@/lib/resource-planning-projects";
 
 const VACATION_EMOJI = "🌴";
 
@@ -135,29 +143,34 @@ function DisplayUnitSelect({
   onChange: (unit: DisplayUnit) => void;
 }) {
   return (
-    <div className="relative shrink-0">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as DisplayUnit)}
-        aria-label="Display units"
-        title="100% = 40 hours"
-        className="appearance-none rounded-lg border border-neutral-300 bg-white pl-3 pr-8 py-2 text-sm text-neutral-900 focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500"
-      >
-        <option value="hours">Hours</option>
-        <option value="percent">Percentage</option>
-      </select>
-      <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-neutral-500">
-        <svg viewBox="0 0 20 20" aria-hidden className="h-4 w-4">
-          <path
-            d="M5.25 7.5L10 12.25L14.75 7.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+    <div className="flex items-center gap-2 shrink-0">
+      <span id="rp-display-unit-label" className="text-sm text-neutral-600 whitespace-nowrap">
+        Show as
       </span>
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value as DisplayUnit)}
+          aria-labelledby="rp-display-unit-label"
+          title="Allocation per week: 100% = 40 hours"
+          className="appearance-none rounded-lg border border-neutral-300 bg-white pl-3 pr-8 py-2 text-sm text-neutral-900 focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+        >
+          <option value="hours">Hours</option>
+          <option value="percent">% of week</option>
+        </select>
+        <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-neutral-500">
+          <svg viewBox="0 0 20 20" aria-hidden className="h-4 w-4">
+            <path
+              d="M5.25 7.5L10 12.25L14.75 7.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      </div>
     </div>
   );
 }
@@ -181,7 +194,9 @@ export function ResourcePlanningClient() {
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [resources, setResources] = useState<string[]>([]);
   const [projects, setProjects] = useState<string[]>([]);
-  const [projectMeta, setProjectMeta] = useState<Record<string, { display_title: string | null; harvest_project_ids: number[]; harvest_project_names: string[] }>>({});
+  const [projectMeta, setProjectMeta] = useState<Record<string, { display_title: string | null; harvest_project_ids: number[]; harvest_project_names: string[]; sow_count?: number; sole_sow_id?: string | null }>>({});
+  const [budgetSummaries, setBudgetSummaries] = useState<Record<string, ResourcePlanningBudgetSummary>>({});
+  const [budgetLoading, setBudgetLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- setter used for tooltip; value reserved for hover styling
@@ -279,12 +294,14 @@ export function ResourcePlanningClient() {
         setProjects(pData.projects ?? []);
         setProjectMeta(
           Object.fromEntries(
-            (Object.entries(pData.projectMeta ?? {}) as [string, { display_title?: string | null; harvest_project_ids?: number[]; harvest_project_names?: string[] }][]).map(([k, v]) => [
+            (Object.entries(pData.projectMeta ?? {}) as [string, { display_title?: string | null; harvest_project_ids?: number[]; harvest_project_names?: string[]; sow_count?: number; sole_sow_id?: string | null }][]).map(([k, v]) => [
               k,
               {
                 display_title: v.display_title ?? null,
                 harvest_project_ids: Array.isArray(v.harvest_project_ids) ? v.harvest_project_ids : [],
                 harvest_project_names: Array.isArray(v.harvest_project_names) ? v.harvest_project_names : [],
+                sow_count: typeof v.sow_count === "number" ? v.sow_count : 0,
+                sole_sow_id: v.sole_sow_id ?? null,
               },
             ])
           )
@@ -466,11 +483,37 @@ export function ResourcePlanningClient() {
   }, [toast]);
 
   const getDisplayTitle = (name: string) => projectMeta[name]?.display_title?.trim() || name;
-  const projectNames = Array.from(
-    new Set([...projects, ...allocations.map((a) => a.project_name)])
-  ).sort((a, b) =>
-    getDisplayTitle(a).localeCompare(getDisplayTitle(b), undefined, { sensitivity: "base" })
+  const projectNames = useMemo(
+    () =>
+      Array.from(new Set([...projects, ...allocations.map((a) => a.project_name)])).sort((a, b) =>
+        getDisplayTitle(a).localeCompare(getDisplayTitle(b), undefined, { sensitivity: "base" })
+      ),
+    [projects, allocations, projectMeta]
   );
+
+  useEffect(() => {
+    if (projectNames.length === 0) {
+      setBudgetLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setBudgetLoading(true);
+    fetch("/api/resource-planning/projects/budget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectNames }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.summaries) setBudgetSummaries(data.summaries);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setBudgetLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [projectNames]);
   function getLinkedProjectsLabel(name: string): { label: string; tooltip?: string; unlinked?: boolean } {
     const ids = projectMeta[name]?.harvest_project_ids ?? [];
     const storedNames = projectMeta[name]?.harvest_project_names ?? [];
@@ -885,15 +928,17 @@ export function ResourcePlanningClient() {
                   </div>
                 )}
               </div>
-              <DisplayUnitSelect value={displayUnit} onChange={setDisplayUnit} />
             </div>
-            <button
-              type="button"
-              onClick={() => { setShowAddProject(true); setAddProjectDisplayNameDraft(""); }}
-              className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 shrink-0"
-            >
-              Add new project
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <DisplayUnitSelect value={displayUnit} onChange={setDisplayUnit} />
+              <button
+                type="button"
+                onClick={() => { setShowAddProject(true); setAddProjectDisplayNameDraft(""); }}
+                className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 shrink-0"
+              >
+                Add new project
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -945,16 +990,17 @@ export function ResourcePlanningClient() {
         </div>
       ) : viewMode === "individual" ? (
         <div className="min-w-0 rounded-lg border border-neutral-200 bg-white shadow-sm overflow-hidden">
+          <div className="max-h-[calc(100dvh-12rem)] overflow-auto">
           <table className="w-full min-w-[500px] table-fixed border-collapse text-xs">
-            <thead className="bg-neutral-50">
+            <thead className="sticky top-0 z-20 bg-neutral-50 shadow-[0_1px_0_0_rgb(229,229,229)]">
               <tr className="border-b border-neutral-200">
-                <th className="sticky left-0 z-20 min-w-[268px] w-[268px] border-r border-neutral-200 bg-neutral-50 px-2 py-1 text-left font-medium text-neutral-700 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                <th className="sticky left-0 top-0 z-30 min-w-[268px] w-[268px] border-r border-neutral-200 bg-neutral-50 px-2 py-1 text-left font-medium text-neutral-700 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
                   Name
                 </th>
                   {weekStarts.map((w) => (
                     <th
                       key={w}
-                      className="min-w-[5rem] w-[5rem] border-r border-neutral-200 px-0.5 py-1 text-center font-medium text-neutral-600 last:border-r-0 whitespace-nowrap text-xs"
+                      className="min-w-[5rem] w-[5rem] border-r border-neutral-200 bg-neutral-50 px-0.5 py-1 text-center font-medium text-neutral-600 last:border-r-0 whitespace-nowrap text-xs"
                     >
                       <span className="md:hidden">{formatWeekLabelShort(w)}</span>
                       <span className="hidden md:inline">{formatWeekLabelRange(w)}</span>
@@ -979,7 +1025,7 @@ export function ResourcePlanningClient() {
                       aria-expanded={isExpanded}
                       aria-label={isExpanded ? `Collapse projects for ${resource_name}` : `Show projects for ${resource_name}`}
                     >
-                      <td className="sticky left-0 z-20 min-w-[268px] w-[268px] border-r border-neutral-200 bg-white px-2 py-2 align-middle shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)] group-hover:bg-neutral-50">
+                      <td className="sticky left-0 z-10 min-w-[268px] w-[268px] border-r border-neutral-200 bg-white px-2 py-2 align-middle shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)] group-hover:bg-neutral-50">
                         <div className="flex items-center gap-1">
                           <span className="text-base leading-none text-neutral-500" aria-hidden>{isExpanded ? "−" : "+"}</span>
                           <span className="font-medium text-neutral-900">{resource_name}</span>
@@ -1008,7 +1054,7 @@ export function ResourcePlanningClient() {
                   const detailRows = isExpanded
                     ? projectRows.map(({ project_name, weekFte }) => (
                         <tr key={`${resource_name}-${project_name}`} className="border-b border-neutral-50 bg-neutral-50/50">
-                          <td className="sticky left-0 z-20 min-w-[268px] w-[268px] border-r border-neutral-200 bg-neutral-50/80 pl-6 pr-2 py-2 text-neutral-600 text-left shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                          <td className="sticky left-0 z-10 min-w-[268px] w-[268px] border-r border-neutral-200 bg-neutral-50/80 pl-6 pr-2 py-2 text-neutral-600 text-left shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
                             {(() => {
                               const { label, tooltip } = getLinkedProjectsLabel(project_name);
                               if (!label) return <span className="text-neutral-800">{getDisplayTitle(project_name)}</span>;
@@ -1043,6 +1089,7 @@ export function ResourcePlanningClient() {
                 })}
               </tbody>
             </table>
+          </div>
         </div>
       ) : (
         <div className="min-w-0 space-y-6">
@@ -1058,17 +1105,20 @@ export function ResourcePlanningClient() {
                 className="min-w-0 rounded-lg border border-neutral-200 bg-white shadow-sm overflow-hidden"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-200 bg-neutral-50 px-3 py-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <h2 className="text-sm font-semibold text-neutral-900 truncate" title={(() => { const { label, tooltip } = getLinkedProjectsLabel(projectName); return [getDisplayTitle(projectName), label ? (tooltip ?? label) : null].filter(Boolean).join(" · "); })()}>
-                      <span className="text-neutral-800">{getDisplayTitle(projectName)}</span>
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <h2
+                      className="text-sm font-semibold text-neutral-900 min-w-0 flex-1 flex items-center gap-0.5 truncate"
+                      title={(() => { const { label, tooltip } = getLinkedProjectsLabel(projectName); return [getDisplayTitle(projectName), label ? (tooltip ?? label) : null].filter(Boolean).join(" · "); })()}
+                    >
+                      <span className="text-neutral-800 truncate max-w-[42%] sm:max-w-[38%]">{getDisplayTitle(projectName)}</span>
                       {(() => {
                         const { label, tooltip, unlinked } = getLinkedProjectsLabel(projectName);
                         if (!label) return null;
                         return (
                           <>
-                            <span className="text-neutral-400"> · </span>
+                            <span className="text-neutral-400 shrink-0"> · </span>
                             <span
-                              className={unlinked ? "text-neutral-500 italic" : "text-neutral-600"}
+                              className={`truncate max-w-[42%] sm:max-w-[38%] ${unlinked ? "text-neutral-500 italic" : "text-neutral-600"}`}
                               title={tooltip ?? (unlinked ? "Link Harvest projects from Edit project when the SOW is signed." : undefined)}
                             >
                               {label}
@@ -1098,6 +1148,35 @@ export function ResourcePlanningClient() {
                       );
                     })()}
                   </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <MiniBudgetIndicator
+                      summary={budgetSummaries[projectName]}
+                      compact
+                      loading={
+                        budgetLoading &&
+                        (projectMeta[projectName]?.harvest_project_ids ?? []).length > 0 &&
+                        budgetSummaries[projectName] === undefined
+                      }
+                    />
+                    {(() => {
+                      const sowCount = projectMeta[projectName]?.sow_count ?? 0;
+                      const sowLink = rpProjectSowLink(
+                        projectName,
+                        sowCount,
+                        projectMeta[projectName]?.sole_sow_id
+                      );
+                      return (
+                        <Link
+                          href={sowLink.href}
+                          target={sowLink.openInNewTab ? "_blank" : undefined}
+                          rel={sowLink.openInNewTab ? "noopener noreferrer" : undefined}
+                          className="hidden sm:inline-flex rounded border border-neutral-300 bg-white px-2 py-0.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"
+                          title={sowLink.title}
+                        >
+                          SOW{sowCount > 0 ? ` (${sowCount})` : ""}
+                        </Link>
+                      );
+                    })()}
                   <div className="flex items-center gap-1" data-project-menu>
                     <div className="relative">
                       <button
@@ -1125,10 +1204,11 @@ export function ResourcePlanningClient() {
                           </button>
                           <button
                             type="button"
-                            onClick={async () => {
-                              if (!confirm(`Delete project "${getDisplayTitle(projectName)}" and all its allocations?`)) return;
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (!confirmDeleteResourcePlanningProject(getDisplayTitle(projectName))) return;
                               setOpenProjectMenu(null);
-                              const res = await fetch(`/api/resource-planning/projects/${encodeURIComponent(projectName)}`, { method: "DELETE" });
+                              const res = await deleteResourcePlanningProject(projectName);
                               if (res.ok) {
                                 fetchAllocations(true);
                                 fetchMeta();
@@ -1144,6 +1224,7 @@ export function ResourcePlanningClient() {
                         </div>
                       )}
                     </div>
+                  </div>
                   </div>
                 </div>
                 <div className="min-h-0 max-h-[50vh] overflow-auto">
@@ -1472,21 +1553,19 @@ export function ResourcePlanningClient() {
         />
       )}
 
-      {editProjectName &&
-        createPortal(
-          <EditProjectModal
-            key={editProjectName}
-            projectName={editProjectName}
-            initialDisplayTitle={projectMeta[editProjectName]?.display_title ?? ""}
-            harvestProjectIds={projectMeta[editProjectName]?.harvest_project_ids ?? []}
-            onClose={() => setEditProjectName(null)}
-            onSaved={() => {
-              setEditProjectName(null);
-              fetchMeta();
-            }}
-          />,
-          document.body
-        )}
+      {editProjectName && (
+        <EditRpProjectModal
+          key={editProjectName}
+          projectName={editProjectName}
+          initialDisplayTitle={projectMeta[editProjectName]?.display_title ?? ""}
+          harvestProjectIds={projectMeta[editProjectName]?.harvest_project_ids ?? []}
+          onClose={() => setEditProjectName(null)}
+          onSaved={() => {
+            setEditProjectName(null);
+            fetchMeta();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1739,191 +1818,6 @@ function AddProjectFromHarvestModal({
               : selectedProjects.length
                 ? `Add (${selectedProjects.length} Harvest project${selectedProjects.length === 1 ? "" : "s"})`
                 : "Add project"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function EditProjectModal({
-  projectName,
-  initialDisplayTitle,
-  harvestProjectIds,
-  onClose,
-  onSaved,
-}: {
-  projectName: string;
-  initialDisplayTitle: string;
-  harvestProjectIds: number[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [titleDraft, setTitleDraft] = useState(
-    () => initialDisplayTitle.trim() || projectName
-  );
-  const [harvestProjects, setHarvestProjects] = useState<HarvestProject[]>([]);
-  const [selectedClient, setSelectedClient] = useState<string | "">("");
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set(harvestProjectIds));
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const clients = useMemo(() => {
-    const set = new Set<string>();
-    harvestProjects.forEach((p) => { if (p.client?.name) set.add(p.client.name); });
-    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  }, [harvestProjects]);
-  const projectsFiltered = useMemo(
-    () =>
-      selectedClient
-        ? harvestProjects.filter((p) => p.client?.name === selectedClient)
-        : harvestProjects,
-    [harvestProjects, selectedClient]
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/integrations/harvest/projects")
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled || data.error) return;
-        const list = (data.projects ?? []).filter((p: HarvestProject) => p.is_active);
-        list.sort((a: HarvestProject, b: HarvestProject) => {
-          const ca = (a.client?.name ?? "").localeCompare(b.client?.name ?? "");
-          if (ca !== 0) return ca;
-          return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-        });
-        setHarvestProjects(list);
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    if (harvestProjects.length === 0 || harvestProjectIds.length === 0) return;
-    const firstLinked = harvestProjects.find((p) => harvestProjectIds.includes(p.id));
-    if (firstLinked?.client?.name) setSelectedClient(firstLinked.client.name);
-  }, [harvestProjects, harvestProjectIds]);
-
-  async function handleSave() {
-    setSaving(true);
-    setError("");
-    try {
-      const title = titleDraft.trim();
-      const res = await fetch(`/api/resource-planning/projects/${encodeURIComponent(projectName)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          display_title: title === projectName ? null : title || null,
-          harvest_project_ids: Array.from(selectedIds),
-          harvest_project_names: harvestProjects.filter((p) => selectedIds.has(p.id)).map((p) => p.name),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Failed to save");
-      onSaved();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function toggleHarvestProject(id: number) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        className="w-full max-w-2xl rounded-xl border border-neutral-200 bg-white p-4 shadow-xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-base font-semibold text-neutral-900">Edit project</h3>
-        <p className="mt-0.5 text-xs text-neutral-500">
-          Update the display name and link Harvest projects when ready. Leave Harvest unlinked for draft or future work.
-        </p>
-        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-        <div className="mt-3">
-          <label className="block text-xs font-medium text-neutral-600">Display name</label>
-          <input
-            type="text"
-            value={titleDraft}
-            onChange={(e) => setTitleDraft(e.target.value)}
-            placeholder="e.g. Q1 Support"
-            autoFocus
-            className="mt-0.5 w-full rounded border border-neutral-300 px-2.5 py-1.5 text-sm"
-          />
-          <p className="mt-1 text-xs text-neutral-500">
-            Internal key: <span className="font-mono text-neutral-600">{projectName}</span>
-          </p>
-        </div>
-        <div className="mt-3">
-          <label className="block text-xs font-medium text-neutral-600">Client</label>
-          <select
-            value={selectedClient}
-            onChange={(e) => setSelectedClient(e.target.value)}
-            className="mt-0.5 w-full rounded border border-neutral-300 px-2.5 py-1.5 text-sm"
-          >
-            <option value="">All clients</option>
-            {clients.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
-        <div className="mt-3">
-          <label className="block text-xs font-medium text-neutral-600">Harvest projects linked</label>
-          <p className="mt-0.5 text-xs text-neutral-500">Select one or more Harvest projects to associate with this resource planning project.</p>
-          {loading ? (
-            <p className="mt-1 text-sm text-neutral-500">Loading…</p>
-          ) : (
-            <ul className="mt-1 max-h-48 overflow-y-auto rounded-lg border border-neutral-200 divide-y divide-neutral-100">
-              {projectsFiltered.map((p) => {
-                const checked = selectedIds.has(p.id);
-                return (
-                  <li key={p.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-neutral-50">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleHarvestProject(p.id)}
-                      className="rounded border-neutral-300"
-                      aria-label={`Link ${p.name}`}
-                    />
-                    <span className="flex-1 min-w-0 truncate text-sm text-neutral-900">
-                      {p.client?.name && <span className="text-neutral-600">{p.client.name}</span>}
-                      {p.client?.name && <span className="text-neutral-400"> · </span>}
-                      {p.name}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="rounded-lg bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Save"}
           </button>
         </div>
       </div>
