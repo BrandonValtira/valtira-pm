@@ -64,20 +64,40 @@ export function ProjectBudgetSection({ projectName }: { projectName: string }) {
   }, [load]);
 
   if (loading) {
-    return <BudgetSectionSkeleton />;
+    return (
+      <section className="mb-8 rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-medium text-neutral-900">Budget</h2>
+        <div className="mt-4">
+          <BudgetSectionSkeleton />
+        </div>
+      </section>
+    );
   }
   if (error) {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        {error}
-      </div>
+      <section className="mb-8 rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-medium text-neutral-900">Budget</h2>
+        <div className="mt-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            {error}
+          </div>
+        </div>
+      </section>
     );
+  }
+  if (detail?.summary.budgetTracking === "cost") {
+    return null;
   }
   if (!detail?.summary.hasBudget) {
     return (
-      <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-600">
-        No hour budget set in Harvest for linked projects. Link Harvest projects and set a budget in Harvest to see burn tracking.
-      </div>
+      <section className="mb-8 rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-medium text-neutral-900">Budget</h2>
+        <div className="mt-4">
+          <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-600">
+            No hour budget set in Harvest for linked projects. Link Harvest projects and set a budget in Harvest to see burn tracking.
+          </div>
+        </div>
+      </section>
     );
   }
 
@@ -89,8 +109,10 @@ export function ProjectBudgetSection({ projectName }: { projectName: string }) {
   const over = summary.spentToDate > summary.totalBudgetHours;
 
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
+    <section className="mb-8 rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-medium text-neutral-900">Budget</h2>
+      <div className="mt-4 space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Total budget</p>
           <p className="mt-1 text-2xl font-semibold text-neutral-900 tabular-nums">
@@ -124,6 +146,7 @@ export function ProjectBudgetSection({ projectName }: { projectName: string }) {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </section>
   );
 }

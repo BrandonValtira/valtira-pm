@@ -150,12 +150,7 @@ export function ProjectDetailClient({
         </div>
       </div>
 
-      <section className="mb-8 rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-medium text-neutral-900">Budget</h2>
-        <div className="mt-4">
-          <ProjectBudgetSection projectName={projectName} />
-        </div>
-      </section>
+      <ProjectBudgetSection projectName={projectName} />
 
       <section
         id="project-sows"
