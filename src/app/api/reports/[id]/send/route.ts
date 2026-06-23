@@ -1,8 +1,6 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendEmailViaGmail } from "@/lib/gmail-send";
-import { generateReportHtml } from "@/lib/report-pdf";
-import { formatDateOnly } from "@/lib/report-week";
+import { sendProjectReportToClients } from "@/lib/send-project-report";
 import { NextResponse } from "next/server";
 
 /**
@@ -29,7 +27,7 @@ export async function POST(
 
   const { data: project } = await supabase
     .from("projects")
-    .select("id, name, owner_user_id")
+    .select("id, name, owner_user_id, client_emails")
     .eq("id", report.project_id)
     .eq("owner_user_id", userId)
     .single();
@@ -42,70 +40,15 @@ export async function POST(
     return NextResponse.json({ error: "At least one recipient email is required" }, { status: 400 });
   }
 
-  const toSet = new Set(toAddresses);
-  const ccAddresses: string[] = [];
-  const { data: ownerUser } = await supabase.from("users").select("email").eq("id", project.owner_user_id).single();
-  if (ownerUser?.email) {
-    const e = ownerUser.email.trim().toLowerCase();
-    if (e && !toSet.has(e)) {
-      ccAddresses.push(e);
-      toSet.add(e);
-    }
+  const projectForSend = { ...project, client_emails: toAddresses };
+  const result = await sendProjectReportToClients(supabase, report, projectForSend);
+  if (result.error) {
+    const status = result.error.includes("Connect Google") ? 400 : 502;
+    return NextResponse.json({ error: result.error }, { status });
   }
 
-  const startDateStr = String(report.period_start).slice(0, 10);
-  const endDateStr = String(report.period_end).slice(0, 10);
-  const [y, m] = startDateStr.split("-").map(Number);
-  const periodLabel =
-    report.period_type === "month"
-      ? new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" })
-      : `Week of ${formatDateOnly(startDateStr)} – ${formatDateOnly(endDateStr)}`;
-  const subject = `Report: ${project.name} – ${periodLabel}`;
-  const reportBodyHtml = generateReportHtml({
-    period_type: report.period_type,
-    period_start: report.period_start,
-    period_end: report.period_end,
-    report_format: report.report_format,
-    harvest_data_snapshot: report.harvest_data_snapshot,
+  return NextResponse.json({
+    ok: true,
+    sentTo: result.sentTo,
   });
-  const html = `
-    <p>Please find below the project report for <strong>${project.name}</strong> (${periodLabel}).</p>
-    ${reportBodyHtml}
-    <p style="margin-top:16px;">If you have any questions, reply to this email.</p>
-  `;
-
-  try {
-    const { error: emailError } = await sendEmailViaGmail(project.owner_user_id, {
-      to: toAddresses,
-      cc: ccAddresses.length > 0 ? ccAddresses : undefined,
-      subject,
-      html,
-    });
-
-    if (emailError) {
-      const status = emailError.includes("Connect Google") ? 400 : 502;
-      return NextResponse.json({ error: emailError }, { status });
-    }
-
-    const now = new Date().toISOString();
-    await supabase.from("reports").update({
-      status: "sent",
-      sent_at: now,
-      updated_at: now,
-    }).eq("id", reportId);
-
-    await supabase.from("report_history").insert({
-      report_id: reportId,
-      sent_at: now,
-      recipient_emails: toAddresses,
-    });
-
-    return NextResponse.json({
-      ok: true,
-      sentTo: toAddresses,
-    });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed to send report";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
 }

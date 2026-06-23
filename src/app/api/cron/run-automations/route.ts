@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createPlaceholderReport, createReport } from "@/lib/create-report";
 import { sendReportApprovalRequestViaGmail, sendReportReminderViaGmail } from "@/lib/gmail-send";
+import { sendProjectReportToClients } from "@/lib/send-project-report";
 import { NextResponse } from "next/server";
 
 /** Authorized if: (1) CRON_SECRET matches Bearer or x-cron-secret header, or (2) user is logged in (for testing). */
@@ -148,18 +149,69 @@ export async function GET(req: Request) {
         });
   }
 
-  const results: { created?: string[]; reminders?: string[]; errors?: string[] } = {};
+  const results: { created?: string[]; sent?: string[]; reminders?: string[]; errors?: string[] } = {};
   const errors: string[] = [];
 
   for (const automation of due) {
-    let report: { id: string };
+    let report: {
+      id: string;
+      period_type: string;
+      period_start: string;
+      period_end: string;
+      harvest_data_snapshot?: unknown;
+      report_format?: string | null;
+    };
+    const needsApproval = automation.requires_approval !== false;
+    const reportFormat =
+      automation.report_format === "budget_allocation" ? "budget_allocation" : "standard";
+
     try {
       const { data: project } = await supabase
         .from("projects")
-        .select("id, name, owner_user_id")
+        .select("id, name, owner_user_id, client_emails")
         .eq("id", automation.project_id)
         .single();
       if (!project?.owner_user_id) continue;
+
+      if (needsApproval) {
+        try {
+          report = await createReport(
+            automation.project_id,
+            project.owner_user_id,
+            automation.period_type as "week" | "month",
+            undefined,
+            undefined,
+            {
+              status: "pending_approval",
+              approvalRequestedAt: new Date().toISOString(),
+              reportFormat,
+            }
+          );
+        } catch (createErr) {
+          const msg = createErr instanceof Error ? createErr.message : String(createErr);
+          report = await createPlaceholderReport(
+            automation.project_id,
+            project.owner_user_id,
+            automation.period_type as "week" | "month",
+            msg,
+            reportFormat
+          );
+          errors.push(`report placeholder (Harvest failed) ${automation.project_id}: ${msg}`);
+        }
+        const toEmails = await getApprovalRecipientEmails(supabase, project.owner_user_id);
+        const sendErr = await sendReportApprovalRequestViaGmail(
+          project.owner_user_id,
+          toEmails,
+          project.name,
+          automation.project_id,
+          report.id
+        );
+        if (sendErr.error) errors.push(`approval email ${report.id}: ${sendErr.error}`);
+        else (results.created = results.created ?? []).push(report.id);
+        continue;
+      }
+
+      // Auto-send: email clients directly (no approval step).
       try {
         report = await createReport(
           automation.project_id,
@@ -167,14 +219,7 @@ export async function GET(req: Request) {
           automation.period_type as "week" | "month",
           undefined,
           undefined,
-          {
-            status: "pending_approval",
-            approvalRequestedAt: new Date().toISOString(),
-            reportFormat:
-              automation.report_format === "budget_allocation"
-                ? "budget_allocation"
-                : "standard",
-          }
+          { reportFormat }
         );
       } catch (createErr) {
         const msg = createErr instanceof Error ? createErr.message : String(createErr);
@@ -183,20 +228,29 @@ export async function GET(req: Request) {
           project.owner_user_id,
           automation.period_type as "week" | "month",
           msg,
-          automation.report_format === "budget_allocation" ? "budget_allocation" : "standard"
+          reportFormat
         );
-        errors.push(`report placeholder (Harvest failed) ${automation.project_id}: ${msg}`);
+        errors.push(`auto-send failed (Harvest) ${automation.project_id}: ${msg}; owner notified to review`);
+        const toEmails = await getApprovalRecipientEmails(supabase, project.owner_user_id);
+        const sendErr = await sendReportApprovalRequestViaGmail(
+          project.owner_user_id,
+          toEmails,
+          project.name,
+          automation.project_id,
+          report.id
+        );
+        if (sendErr.error) errors.push(`approval email ${report.id}: ${sendErr.error}`);
+        else (results.created = results.created ?? []).push(report.id);
+        continue;
       }
-      const toEmails = await getApprovalRecipientEmails(supabase, project.owner_user_id);
-      const sendErr = await sendReportApprovalRequestViaGmail(
-        project.owner_user_id,
-        toEmails,
-        project.name,
-        automation.project_id,
-        report.id
-      );
-      if (sendErr.error) errors.push(`approval email ${report.id}: ${sendErr.error}`);
-      else (results.created = results.created ?? []).push(report.id);
+
+      const sendResult = await sendProjectReportToClients(supabase, report, project);
+      if (sendResult.error) {
+        errors.push(`auto-send ${report.id}: ${sendResult.error}`);
+        (results.created = results.created ?? []).push(report.id);
+      } else {
+        (results.sent = results.sent ?? []).push(report.id);
+      }
     } catch (e) {
       errors.push(`create report ${automation.project_id}: ${e instanceof Error ? e.message : String(e)}`);
     }

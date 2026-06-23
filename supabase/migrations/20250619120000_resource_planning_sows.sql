@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS resource_planning_project_files (
 CREATE INDEX IF NOT EXISTS idx_rp_project_files_project ON resource_planning_project_files(project_name);
 
 ALTER TABLE resource_planning_project_files ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "resource_planning_project_files_all" ON resource_planning_project_files;
 CREATE POLICY "resource_planning_project_files_all" ON resource_planning_project_files FOR ALL USING (true);
 
 -- Optional contract expiry for budget burn (can also parse from Harvest project names)

@@ -881,7 +881,11 @@ export function ReportSection({
                       <span className="ml-1 text-xs font-normal text-neutral-600">
                         · {reportFormatLabel(a.report_format)}
                       </span>
-                      {a.requires_approval !== false && <span className="ml-1 text-xs font-normal text-neutral-600">(requires approval)</span>}
+                      {a.requires_approval === false ? (
+                        <span className="ml-1 text-xs font-normal text-neutral-600">(sends automatically)</span>
+                      ) : (
+                        <span className="ml-1 text-xs font-normal text-neutral-600">(requires approval)</span>
+                      )}
                     </span>
                     <span className="text-sm text-neutral-600">{formatSchedule(a)}</span>
                     <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
