@@ -1,9 +1,15 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createPlaceholderReport, createReport } from "@/lib/create-report";
-import { sendReportApprovalRequestViaGmail, sendReportReminderViaGmail } from "@/lib/gmail-send";
+import {
+  automationNeedsApproval,
+  sendReportApprovalRequest,
+  sendReportReminder,
+} from "@/lib/send-report-approval-email";
 import { sendProjectReportToClients } from "@/lib/send-project-report";
 import { NextResponse } from "next/server";
+
+export const maxDuration = 300;
 
 /** Authorized if: (1) CRON_SECRET matches Bearer or x-cron-secret header, or (2) user is logged in (for testing). */
 async function isAuthorized(req: Request): Promise<{ ok: boolean; isTestRun: boolean; automationId: string | null; userId: string | null; isSuperAdmin: boolean }> {
@@ -40,6 +46,39 @@ function normalizeTime(hhmm: string): string {
   const h = Math.min(23, Math.max(0, parseInt(parts[0], 10) || 0));
   const m = Math.min(59, Math.max(0, parseInt(parts[1], 10) || 0));
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+}
+
+function isAutomationDue(
+  automation: {
+    period_type: string;
+    day_of_week: number | null;
+    day_of_month: number | null;
+    time_utc: string;
+  },
+  timeUtc: string,
+  dayOfWeek: number,
+  businessDayOfMonth: number
+): boolean {
+  const scheduled = normalizeTime((automation.time_utc ?? "").slice(0, 5));
+  const [schedH, schedM] = scheduled.split(":").map((n) => parseInt(n, 10));
+  const [currH, currM] = timeUtc.split(":").map((n) => parseInt(n, 10));
+  // Hourly cron fires at :00; match the scheduled hour (and minute when not on the hour).
+  if (schedH !== currH) return false;
+  if (schedM !== 0 && !(schedM === currM)) return false;
+  if (automation.period_type === "week") return (automation.day_of_week ?? 0) === dayOfWeek;
+  if (automation.period_type === "month") return (automation.day_of_month ?? 1) === businessDayOfMonth;
+  return false;
+}
+
+async function markApprovalEmailSent(
+  supabase: ReturnType<typeof createAdminClient>,
+  reportId: string
+): Promise<void> {
+  const now = new Date().toISOString();
+  await supabase
+    .from("reports")
+    .update({ approval_email_sent_at: now, updated_at: now })
+    .eq("id", reportId);
 }
 
 /** Count weekdays (1–5) from the 1st through the given day in Central. */
@@ -141,15 +180,16 @@ export async function GET(req: Request) {
 
     due = isTestRun
       ? (automations ?? [])
-      : (automations ?? []).filter((a) => {
-          if (normalizeTime((a.time_utc ?? "").slice(0, 5)) !== timeUtc) return false;
-          if (a.period_type === "week") return (a.day_of_week ?? 0) === dayOfWeek;
-          if (a.period_type === "month") return (a.day_of_month ?? 1) === businessDayOfMonth;
-          return false;
-        });
+      : (automations ?? []).filter((a) => isAutomationDue(a, timeUtc, dayOfWeek, businessDayOfMonth));
   }
 
-  const results: { created?: string[]; sent?: string[]; reminders?: string[]; errors?: string[] } = {};
+  const results: {
+    created?: string[];
+    sent?: string[];
+    reminders?: string[];
+    approvalEmailsRetried?: string[];
+    errors?: string[];
+  } = {};
   const errors: string[] = [];
 
   for (const automation of due) {
@@ -161,7 +201,7 @@ export async function GET(req: Request) {
       harvest_data_snapshot?: unknown;
       report_format?: string | null;
     };
-    const needsApproval = automation.requires_approval !== false;
+    const needsApproval = automationNeedsApproval(automation.requires_approval);
     const reportFormat =
       automation.report_format === "budget_allocation" ? "budget_allocation" : "standard";
 
@@ -199,7 +239,7 @@ export async function GET(req: Request) {
           errors.push(`report placeholder (Harvest failed) ${automation.project_id}: ${msg}`);
         }
         const toEmails = await getApprovalRecipientEmails(supabase, project.owner_user_id);
-        const sendErr = await sendReportApprovalRequestViaGmail(
+        const sendErr = await sendReportApprovalRequest(
           project.owner_user_id,
           toEmails,
           project.name,
@@ -207,7 +247,10 @@ export async function GET(req: Request) {
           report.id
         );
         if (sendErr.error) errors.push(`approval email ${report.id}: ${sendErr.error}`);
-        else (results.created = results.created ?? []).push(report.id);
+        else {
+          await markApprovalEmailSent(supabase, report.id);
+          (results.created = results.created ?? []).push(report.id);
+        }
         continue;
       }
 
@@ -232,7 +275,7 @@ export async function GET(req: Request) {
         );
         errors.push(`auto-send failed (Harvest) ${automation.project_id}: ${msg}; owner notified to review`);
         const toEmails = await getApprovalRecipientEmails(supabase, project.owner_user_id);
-        const sendErr = await sendReportApprovalRequestViaGmail(
+        const sendErr = await sendReportApprovalRequest(
           project.owner_user_id,
           toEmails,
           project.name,
@@ -240,7 +283,10 @@ export async function GET(req: Request) {
           report.id
         );
         if (sendErr.error) errors.push(`approval email ${report.id}: ${sendErr.error}`);
-        else (results.created = results.created ?? []).push(report.id);
+        else {
+          await markApprovalEmailSent(supabase, report.id);
+          (results.created = results.created ?? []).push(report.id);
+        }
         continue;
       }
 
@@ -258,7 +304,45 @@ export async function GET(req: Request) {
 
   const runReminders = !(isTestRun && requestedAutomationId);
   const now = new Date();
+  const thirtySixHoursAgo = new Date(now.getTime() - 36 * 60 * 60 * 1000).toISOString();
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+
+  // Retry approval emails when Gmail failed during the scheduled run (hourly until sent).
+  const { data: needsApprovalEmail } = runReminders
+    ? await supabase
+        .from("reports")
+        .select("id, project_id")
+        .eq("status", "pending_approval")
+        .not("approval_requested_at", "is", null)
+        .is("approval_email_sent_at", null)
+        .gte("approval_requested_at", thirtySixHoursAgo)
+    : { data: [] as { id: string; project_id: string }[] };
+
+  for (const report of needsApprovalEmail ?? []) {
+    try {
+      const { data: project } = await supabase
+        .from("projects")
+        .select("id, name, owner_user_id")
+        .eq("id", report.project_id)
+        .single();
+      if (!project?.owner_user_id) continue;
+      const toEmails = await getApprovalRecipientEmails(supabase, project.owner_user_id);
+      const sendErr = await sendReportApprovalRequest(
+        project.owner_user_id,
+        toEmails,
+        project.name,
+        project.id,
+        report.id
+      );
+      if (sendErr.error) errors.push(`approval email retry ${report.id}: ${sendErr.error}`);
+      else {
+        await markApprovalEmailSent(supabase, report.id);
+        (results.approvalEmailsRetried = results.approvalEmailsRetried ?? []).push(report.id);
+      }
+    } catch (e) {
+      errors.push(`approval email retry ${report.id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
   const { data: needsReminder } = runReminders
     ? await supabase
         .from("reports")
@@ -278,7 +362,13 @@ export async function GET(req: Request) {
         .single();
       if (!project?.owner_user_id) continue;
       const toEmails = await getApprovalRecipientEmails(supabase, project.owner_user_id);
-      const sendErr = await sendReportReminderViaGmail(project.owner_user_id, toEmails, project.name, report.project_id, report.id);
+      const sendErr = await sendReportReminder(
+        project.owner_user_id,
+        toEmails,
+        project.name,
+        report.project_id,
+        report.id
+      );
       if (sendErr.error) errors.push(`reminder ${report.id}: ${sendErr.error}`);
       else {
         await supabase.from("reports").update({ reminder_sent_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", report.id);
@@ -289,7 +379,19 @@ export async function GET(req: Request) {
     }
   }
 
-  if (errors.length) results.errors = errors;
+  if (errors.length) {
+    results.errors = errors;
+    console.error("[cron/run-automations] errors:", errors);
+  }
   if (isTestRun) (results as { testRun?: boolean }).testRun = true;
+  if (due.length > 0 || (results.created?.length ?? 0) > 0 || (results.sent?.length ?? 0) > 0) {
+    console.info("[cron/run-automations] completed:", {
+      due: due.length,
+      created: results.created?.length ?? 0,
+      sent: results.sent?.length ?? 0,
+      approvalEmailsRetried: results.approvalEmailsRetried?.length ?? 0,
+      errors: errors.length,
+    });
+  }
   return NextResponse.json(results);
 }
