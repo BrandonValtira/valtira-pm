@@ -10,13 +10,28 @@ import { sendProjectReportToClients } from "@/lib/send-project-report";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 300;
+export const dynamic = "force-dynamic";
 
-/** Authorized if: (1) CRON_SECRET matches Bearer or x-cron-secret header, or (2) user is logged in (for testing). */
+function cronSecretMatches(req: Request, secret: string): boolean {
+  const trimmed = secret.trim();
+  const authHeader = req.headers.get("authorization");
+  if (authHeader === `Bearer ${trimmed}`) return true;
+  const bearer = authHeader?.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (bearer?.trim() === trimmed) return true;
+  if (req.headers.get("x-cron-secret")?.trim() === trimmed) return true;
+  return false;
+}
+
+/** Authorized if: Vercel Cron, CRON_SECRET bearer, or logged-in user (test). */
 async function isAuthorized(req: Request): Promise<{ ok: boolean; isTestRun: boolean; automationId: string | null; userId: string | null; isSuperAdmin: boolean }> {
   const url = new URL(req.url);
-  const authHeader = req.headers.get("authorization");
-  const secret = process.env.CRON_SECRET;
-  if (secret && (authHeader === `Bearer ${secret}` || req.headers.get("x-cron-secret") === secret)) {
+  const secret = process.env.CRON_SECRET?.trim();
+
+  // Vercel's scheduler sets this header; infra validates before the request reaches us.
+  if (req.headers.get("x-vercel-cron") === "1") {
+    return { ok: true, isTestRun: false, automationId: null, userId: null, isSuperAdmin: false };
+  }
+  if (secret && cronSecretMatches(req, secret)) {
     return { ok: true, isTestRun: false, automationId: null, userId: null, isSuperAdmin: false };
   }
   const session = await auth();
@@ -134,6 +149,10 @@ function getCentralNow(): { timeUtc: string; dayOfWeek: number; dayOfMonth: numb
 export async function GET(req: Request) {
   const { ok, isTestRun, automationId: requestedAutomationId, userId, isSuperAdmin } = await isAuthorized(req);
   if (!ok) {
+    console.warn("[cron/run-automations] unauthorized", {
+      hasCronHeader: req.headers.get("x-vercel-cron") === "1",
+      hasAuthHeader: !!req.headers.get("authorization"),
+    });
     return NextResponse.json({ error: "Unauthorized. Use CRON_SECRET or log in and add ?test=1 to test." }, { status: 401 });
   }
   const supabase = createAdminClient();
