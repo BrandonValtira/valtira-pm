@@ -202,7 +202,7 @@ function BudgetBurnOverview({
   if (!display) {
     return (
       <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-600">
-        No hour budget set in Harvest for this project. Add a budget in Harvest to see burn tracking.
+        No hour budget set in Harvest for this project. Add a budget in Harvest to see utilization tracking.
       </div>
     );
   }
@@ -216,7 +216,7 @@ function BudgetBurnOverview({
             {display.periodLabel}
           </p>
           <p className="mt-1 text-sm text-neutral-900">
-            <span className="font-bold">{display.periodActual.toFixed(1)}h</span> burned ·{" "}
+            <span className="font-bold">{display.periodActual.toFixed(1)}h</span> utilized ·{" "}
             <span className="font-medium">{display.periodBudget.toFixed(1)}h</span> budgeted
           </p>
           <p className={`mt-0.5 text-xs ${varianceClassName(display.periodVariance)}`}>
@@ -228,14 +228,14 @@ function BudgetBurnOverview({
             {display.contractDateLabel}
           </p>
           <p className="mt-1 text-sm text-neutral-900">
-            <span className="font-bold">{display.spentToDate.toFixed(1)}h</span> burned ·{" "}
+            <span className="font-bold">{display.spentToDate.toFixed(1)}h</span> utilized ·{" "}
             <span className="font-medium">{display.totalBudget.toFixed(1)}h</span> total budget
           </p>
           <p className={`mt-0.5 text-xs ${varianceClassName(display.contractVariance)}`}>
             {display.contractVariance.label}
           </p>
           <p className="mt-0.5 text-xs text-neutral-600">
-            Expected burn: ~{display.monthlyBudget.toFixed(1)}h/mo · ~{display.weeklyBudget.toFixed(1)}h/wk
+            Expected utilization: ~{display.monthlyBudget.toFixed(1)}h/mo · ~{display.weeklyBudget.toFixed(1)}h/wk
           </p>
         </div>
       </div>

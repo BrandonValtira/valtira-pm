@@ -148,7 +148,7 @@ export function buildBudgetBurnDisplay(params: {
 export function generateBudgetBurnEmailHtml(display: BudgetBurnDisplay): string {
   const cardCell = (
     title: string,
-    burned: number,
+    utilized: number,
     budgetLine: string,
     variance: BudgetBurnDisplayVariance,
     footer?: string
@@ -156,7 +156,7 @@ export function generateBudgetBurnEmailHtml(display: BudgetBurnDisplay): string 
     <td style="padding:10px 12px;background-color:#ffffff;border:1px solid #e5e5e5;vertical-align:top;font-family:Arial,Helvetica,sans-serif;">
       <p style="margin:0 0 8px 0;font-size:11px;font-weight:bold;color:#737373;text-transform:uppercase;letter-spacing:0.03em;">${title}</p>
       <p style="margin:0 0 6px 0;font-size:14px;line-height:1.4;color:#111111;">
-        <strong>${burned.toFixed(1)}h</strong> burned &middot; ${budgetLine}
+        <strong>${utilized.toFixed(1)}h</strong> utilized &middot; ${budgetLine}
       </p>
       <p style="margin:0;font-size:12px;line-height:1.4;color:${variance.emailColor};font-weight:bold;">${variance.label}</p>
       ${footer ? `<p style="margin:6px 0 0 0;font-size:12px;line-height:1.4;color:#525252;">${footer}</p>` : ""}
@@ -183,7 +183,7 @@ export function generateBudgetBurnEmailHtml(display: BudgetBurnDisplay): string 
             display.spentToDate,
             `<strong>${display.totalBudget.toFixed(1)}h</strong> total budget`,
             display.contractVariance,
-            `Expected burn: ~${display.monthlyBudget.toFixed(1)}h/mo &middot; ~${display.weeklyBudget.toFixed(1)}h/wk`
+            `Expected utilization: ~${display.monthlyBudget.toFixed(1)}h/mo &middot; ~${display.weeklyBudget.toFixed(1)}h/wk`
           )}
         </tr>
       </table>
