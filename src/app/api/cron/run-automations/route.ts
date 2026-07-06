@@ -7,6 +7,13 @@ import {
   sendReportReminder,
 } from "@/lib/send-report-approval-email";
 import { sendProjectReportToClients } from "@/lib/send-project-report";
+import {
+  canRetryApprovalEmail,
+  canSendReportReminder,
+  findExistingReportForPeriod,
+  getCentralWeekStartKey,
+  resolveReportPeriodBounds,
+} from "@/lib/report-automation";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 300;
@@ -81,7 +88,11 @@ function isAutomationDue(
   if (schedH !== currH) return false;
   if (schedM !== 0 && !(schedM === currM)) return false;
   if (automation.period_type === "week") return (automation.day_of_week ?? 0) === dayOfWeek;
-  if (automation.period_type === "month") return (automation.day_of_month ?? 1) === businessDayOfMonth;
+  if (automation.period_type === "month") {
+    // Only fire on weekdays — otherwise Sat/Sun keep the same business-day count as Friday.
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+    return isWeekday && (automation.day_of_month ?? 1) === businessDayOfMonth;
+  }
   return false;
 }
 
@@ -141,7 +152,7 @@ function getCentralNow(): { timeUtc: string; dayOfWeek: number; dayOfMonth: numb
 
 /**
  * Run report automations: create reports for due automations (requires_approval → pending_approval + email),
- * then send 24h reminders for reports still awaiting action.
+ * then send reminders (max 2 per week per report) for reports still awaiting action.
  * - Prod: Vercel Cron calls with Authorization: Bearer CRON_SECRET (no query params).
  * - Test: Logged-in user calls GET with ?test=1 to run all active automations now (ignores schedule).
  * - Test one: GET with ?test=1&automationId=xxx to run only that automation (user must own the project or be super_admin).
@@ -204,6 +215,7 @@ export async function GET(req: Request) {
 
   const results: {
     created?: string[];
+    skipped?: string[];
     sent?: string[];
     reminders?: string[];
     approvalEmailsRetried?: string[];
@@ -231,6 +243,22 @@ export async function GET(req: Request) {
         .eq("id", automation.project_id)
         .single();
       if (!project?.owner_user_id) continue;
+
+      const periodType = automation.period_type as "week" | "month";
+      const { start: periodStart, end: periodEnd } = resolveReportPeriodBounds(periodType);
+      if (!isTestRun) {
+        const existingId = await findExistingReportForPeriod(
+          supabase,
+          automation.project_id,
+          periodType,
+          periodStart,
+          periodEnd
+        );
+        if (existingId) {
+          (results.skipped = results.skipped ?? []).push(existingId);
+          continue;
+        }
+      }
 
       if (needsApproval) {
         try {
@@ -323,21 +351,21 @@ export async function GET(req: Request) {
 
   const runReminders = !(isTestRun && requestedAutomationId);
   const now = new Date();
-  const thirtySixHoursAgo = new Date(now.getTime() - 36 * 60 * 60 * 1000).toISOString();
-  const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-  // Retry approval emails when Gmail failed during the scheduled run (hourly until sent).
+  // Retry failed approval emails (throttled: max 3 attempts, 12h apart, within 48h).
   const { data: needsApprovalEmail } = runReminders
     ? await supabase
         .from("reports")
-        .select("id, project_id")
+        .select(
+          "id, project_id, approval_requested_at, approval_email_sent_at, approval_email_attempts, approval_email_last_attempt_at"
+        )
         .eq("status", "pending_approval")
         .not("approval_requested_at", "is", null)
         .is("approval_email_sent_at", null)
-        .gte("approval_requested_at", thirtySixHoursAgo)
-    : { data: [] as { id: string; project_id: string }[] };
+    : { data: [] as { id: string; project_id: string; approval_requested_at: string; approval_email_sent_at: string | null; approval_email_attempts: number | null; approval_email_last_attempt_at: string | null }[] };
 
   for (const report of needsApprovalEmail ?? []) {
+    if (!canRetryApprovalEmail(report, now)) continue;
     try {
       const { data: project } = await supabase
         .from("projects")
@@ -346,6 +374,15 @@ export async function GET(req: Request) {
         .single();
       if (!project?.owner_user_id) continue;
       const toEmails = await getApprovalRecipientEmails(supabase, project.owner_user_id);
+      const attemptAt = new Date().toISOString();
+      await supabase
+        .from("reports")
+        .update({
+          approval_email_attempts: (report.approval_email_attempts ?? 0) + 1,
+          approval_email_last_attempt_at: attemptAt,
+          updated_at: attemptAt,
+        })
+        .eq("id", report.id);
       const sendErr = await sendReportApprovalRequest(
         project.owner_user_id,
         toEmails,
@@ -362,17 +399,18 @@ export async function GET(req: Request) {
       errors.push(`approval email retry ${report.id}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  const { data: needsReminder } = runReminders
+  const { data: reminderCandidates } = runReminders
     ? await supabase
         .from("reports")
-        .select("id, project_id")
+        .select(
+          "id, project_id, approval_requested_at, reminder_sent_at, reminder_count, reminder_week"
+        )
         .in("status", ["pending_approval", "rejected"])
         .not("approval_requested_at", "is", null)
-        .lt("approval_requested_at", twentyFourHoursAgo)
-        .is("reminder_sent_at", null)
-    : { data: [] as { id: string; project_id: string }[] };
+    : { data: [] as { id: string; project_id: string; approval_requested_at: string; reminder_sent_at: string | null; reminder_count: number | null; reminder_week: string | null }[] };
 
-  for (const report of needsReminder ?? []) {
+  for (const report of reminderCandidates ?? []) {
+    if (!canSendReportReminder(report, now)) continue;
     try {
       const { data: project } = await supabase
         .from("projects")
@@ -390,7 +428,19 @@ export async function GET(req: Request) {
       );
       if (sendErr.error) errors.push(`reminder ${report.id}: ${sendErr.error}`);
       else {
-        await supabase.from("reports").update({ reminder_sent_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", report.id);
+        const sentAt = new Date().toISOString();
+        const weekKey = getCentralWeekStartKey(now);
+        const countThisWeek =
+          report.reminder_week === weekKey ? (report.reminder_count ?? 0) + 1 : 1;
+        await supabase
+          .from("reports")
+          .update({
+            reminder_sent_at: sentAt,
+            reminder_week: weekKey,
+            reminder_count: countThisWeek,
+            updated_at: sentAt,
+          })
+          .eq("id", report.id);
         (results.reminders = results.reminders ?? []).push(report.id);
       }
     } catch (e) {

@@ -13,16 +13,8 @@ import {
   REPORT_FORMAT_BUDGET_ALLOCATION,
   type ReportFormat,
 } from "@/lib/report-formats";
-import { getHarvestWeekBounds, formatDateOnly } from "@/lib/report-week";
-
-function getLastMonthBounds(): { start: string; end: string } {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const first = new Date(y, m - 1, 1);
-  const last = new Date(y, m, 0);
-  return { start: first.toISOString().slice(0, 10), end: last.toISOString().slice(0, 10) };
-}
+import { formatDateOnly } from "@/lib/report-week";
+import { resolveReportPeriodBounds } from "@/lib/report-automation";
 
 export type CreateReportOptions = {
   status?: "draft" | "pending_approval";
@@ -168,20 +160,7 @@ export async function createReport(
   const harvestIds = (project.harvest_project_ids ?? []) as number[];
   if (harvestIds.length === 0) throw new Error("Project has no Harvest projects linked");
   const reportFormat = normalizeReportFormat(options.reportFormat);
-  let start: string;
-  let end: string;
-  if (periodStart && periodEnd) {
-    start = periodStart.slice(0, 10);
-    end = periodEnd.slice(0, 10);
-  } else if (periodType === "month") {
-    const b = getLastMonthBounds();
-    start = b.start;
-    end = b.end;
-  } else {
-    const b = getHarvestWeekBounds();
-    start = b.start;
-    end = b.end;
-  }
+  const { start, end } = resolveReportPeriodBounds(periodType, periodStart, periodEnd);
   const harvestDataSnapshot = await buildHarvestSnapshot(
     ownerUserId,
     projectId,
@@ -233,7 +212,7 @@ export async function createPlaceholderReport(
   const supabase = createAdminClient();
   const { data: project } = await supabase.from("projects").select("id").eq("id", projectId).single();
   if (!project) throw new Error("Project not found");
-  const { start, end } = periodType === "month" ? getLastMonthBounds() : getHarvestWeekBounds();
+  const { start, end } = resolveReportPeriodBounds(periodType);
   const now = new Date().toISOString();
   const insert = {
     project_id: projectId,
