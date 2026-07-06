@@ -8,6 +8,7 @@ import {
 } from "@/lib/send-report-approval-email";
 import { sendProjectReportToClients } from "@/lib/send-project-report";
 import {
+  buildLatestPendingReportIds,
   canRetryApprovalEmail,
   canSendReportReminder,
   findExistingReportForPeriod,
@@ -222,6 +223,7 @@ export async function GET(req: Request) {
     errors?: string[];
   } = {};
   const errors: string[] = [];
+  const projectsNotifiedForApproval = new Set<string>();
 
   for (const automation of due) {
     let report: {
@@ -296,6 +298,7 @@ export async function GET(req: Request) {
         if (sendErr.error) errors.push(`approval email ${report.id}: ${sendErr.error}`);
         else {
           await markApprovalEmailSent(supabase, report.id);
+          projectsNotifiedForApproval.add(automation.project_id);
           (results.created = results.created ?? []).push(report.id);
         }
         continue;
@@ -332,6 +335,7 @@ export async function GET(req: Request) {
         if (sendErr.error) errors.push(`approval email ${report.id}: ${sendErr.error}`);
         else {
           await markApprovalEmailSent(supabase, report.id);
+          projectsNotifiedForApproval.add(automation.project_id);
           (results.created = results.created ?? []).push(report.id);
         }
         continue;
@@ -409,7 +413,11 @@ export async function GET(req: Request) {
         .not("approval_requested_at", "is", null)
     : { data: [] as { id: string; project_id: string; approval_requested_at: string; reminder_sent_at: string | null; reminder_count: number | null; reminder_week: string | null }[] };
 
+  const latestPendingReportIds = buildLatestPendingReportIds(reminderCandidates ?? []);
+
   for (const report of reminderCandidates ?? []) {
+    if (projectsNotifiedForApproval.has(report.project_id)) continue;
+    if (!latestPendingReportIds.has(report.id)) continue;
     if (!canSendReportReminder(report, now)) continue;
     try {
       const { data: project } = await supabase

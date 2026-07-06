@@ -68,7 +68,9 @@ export async function findExistingReportForPeriod(
   return data?.id ?? null;
 }
 
-type ReminderCandidate = {
+export type ReminderCandidate = {
+  id: string;
+  project_id: string;
   approval_requested_at: string;
   reminder_sent_at: string | null;
   reminder_count: number | null;
@@ -94,6 +96,21 @@ export function canSendReportReminder(report: ReminderCandidate, now = new Date(
   }
 
   return true;
+}
+
+/** Only the newest pending report per project should receive reminders. */
+export function buildLatestPendingReportIds(
+  reports: Pick<ReminderCandidate, "id" | "project_id" | "approval_requested_at">[]
+): Set<string> {
+  const latestByProject = new Map<string, { id: string; at: number }>();
+  for (const report of reports) {
+    const at = new Date(report.approval_requested_at).getTime();
+    const current = latestByProject.get(report.project_id);
+    if (!current || at > current.at) {
+      latestByProject.set(report.project_id, { id: report.id, at });
+    }
+  }
+  return new Set(Array.from(latestByProject.values(), (v) => v.id));
 }
 
 type ApprovalRetryCandidate = {
