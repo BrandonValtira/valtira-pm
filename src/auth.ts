@@ -38,13 +38,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (!email) return false;
       const userEmail = email.toLowerCase();
 
-      // Super admin: check env first, then explicit allowlist (in case env isn't loaded)
+      // Super admin: must match SUPER_ADMIN_EMAIL (or AUTH_SUPER_ADMIN_EMAIL) env var.
       const superAdminFromEnv = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase()
         || process.env.AUTH_SUPER_ADMIN_EMAIL?.trim().toLowerCase();
-      const superAdminAllowlist = ["brandon.johnson@valtira.net"];
-      const isSuperAdmin =
-        (superAdminFromEnv && userEmail === superAdminFromEnv) ||
-        superAdminAllowlist.includes(userEmail);
+      const isSuperAdmin = !!superAdminFromEnv && userEmail === superAdminFromEnv;
 
       const userWithEmail = { ...user, email };
 
@@ -211,11 +208,8 @@ async function upsertUser(
 ) {
   const superAdminFromEnv = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase()
     || process.env.AUTH_SUPER_ADMIN_EMAIL?.trim().toLowerCase();
-  const superAdminAllowlist = ["brandon.johnson@valtira.net"];
   const userEmail = user.email?.trim().toLowerCase();
-  const isSuperAdmin =
-    (superAdminFromEnv && userEmail === superAdminFromEnv) ||
-    (userEmail ? superAdminAllowlist.includes(userEmail) : false);
+  const isSuperAdmin = !!superAdminFromEnv && !!userEmail && userEmail === superAdminFromEnv;
 
   const emailLower = user.email?.trim().toLowerCase() ?? "";
   if (!emailLower) return;
