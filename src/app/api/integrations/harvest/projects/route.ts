@@ -37,7 +37,7 @@ export async function GET(req: Request) {
   try {
     const accessToken = await ensureValidHarvestToken(supabase, integration);
     const [projectsFromApi, budgetResults] = await Promise.all([
-      getHarvestProjects(accountId, accessToken),
+      getHarvestProjects(accountId, accessToken, { isActive: true }),
       getHarvestProjectBudgetReport(accountId, accessToken),
     ]);
     const projectsFromBudget = harvestProjectsFromBudgetReport(budgetResults);

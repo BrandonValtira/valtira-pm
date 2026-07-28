@@ -59,6 +59,13 @@ export function EditRpProjectModal({
           return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
         });
         setHarvestProjects(list);
+        // Drop stale inactive IDs that are no longer in the picker so Save
+        // doesn't keep them in harvest_project_ids / budget totals.
+        const available = new Set(list.map((p: HarvestProjectOption) => p.id));
+        setSelectedIds((prev) => {
+          const next = new Set([...prev].filter((id) => available.has(id)));
+          return next.size === prev.size ? prev : next;
+        });
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -75,13 +82,15 @@ export function EditRpProjectModal({
     setError("");
     try {
       const title = titleDraft.trim();
+      const availableIds = new Set(harvestProjects.map((p) => p.id));
+      const idsToSave = Array.from(selectedIds).filter((id) => availableIds.has(id));
       const res = await fetch(`/api/resource-planning/projects/${encodeURIComponent(projectName)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           display_title: title === projectName ? null : title || null,
-          harvest_project_ids: Array.from(selectedIds),
-          harvest_project_names: harvestProjects.filter((p) => selectedIds.has(p.id)).map((p) => p.name),
+          harvest_project_ids: idsToSave,
+          harvest_project_names: harvestProjects.filter((p) => idsToSave.includes(p.id)).map((p) => p.name),
         }),
       });
       const data = await res.json().catch(() => ({}));

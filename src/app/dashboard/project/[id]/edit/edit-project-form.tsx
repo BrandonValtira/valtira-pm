@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
 
-type HarvestProject = { id: number; name: string; code: string | null; client: { name: string } };
+type HarvestProject = { id: number; name: string; code: string | null; is_active?: boolean; client: { name: string } };
 type JiraProject = { key: string; name: string; id: string };
 
 export function EditProjectForm({
@@ -39,7 +39,18 @@ export function EditProjectForm({
     fetch("/api/integrations/harvest/projects")
       .then((res) => res.json())
       .then((data) => {
-        if (!cancelled && data.projects) setHarvestProjects(data.projects);
+        if (cancelled || !data.projects) return;
+        const list = data.projects as HarvestProject[];
+        setHarvestProjects(list);
+        const available = new Set(
+          list.filter((p) => p.is_active !== false).map((p) => p.id)
+        );
+        // Drop stale inactive Harvest links hidden from the picker so Save
+        // doesn't keep them contributing to reports.
+        setSelectedHarvestIds((prev) => {
+          const pruned = prev.filter((id) => available.has(id));
+          return pruned.length === prev.length ? prev : pruned;
+        });
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -157,6 +168,9 @@ export function EditProjectForm({
             ) : (
               <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto rounded-md border border-neutral-200 p-2">
                 {harvestProjects
+                  .filter(
+                    (p) => p.is_active !== false || selectedHarvestIds.includes(p.id)
+                  )
                   .sort((a, b) => {
                     const clientA = (a.client?.name ?? "\uFFFF").toLowerCase();
                     const clientB = (b.client?.name ?? "\uFFFF").toLowerCase();

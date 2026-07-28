@@ -86,7 +86,8 @@ export async function getHarvestUsers(
 
 export async function getHarvestProjects(
   accountId: string,
-  accessToken: string
+  accessToken: string,
+  options?: { isActive?: boolean }
 ): Promise<HarvestProject[]> {
   const headers = {
     Authorization: `Bearer ${accessToken}`,
@@ -94,7 +95,11 @@ export async function getHarvestProjects(
     "User-Agent": "Valtira-PM (valtira.net)",
   };
   const all: HarvestProject[] = [];
-  let url: string | null = `${HARVEST_API}/projects?per_page=2000`;
+  const params = new URLSearchParams({ per_page: "2000" });
+  if (options?.isActive !== undefined) {
+    params.set("is_active", options.isActive ? "true" : "false");
+  }
+  let url: string | null = `${HARVEST_API}/projects?${params}`;
   let page = 1;
   while (url) {
     const res = await fetch(url, { headers });
@@ -111,7 +116,7 @@ export async function getHarvestProjects(
       url = nextLink;
     } else if (nextPage != null && projects.length > 0) {
       page = nextPage;
-      url = `${HARVEST_API}/projects?per_page=2000&page=${page}`;
+      url = `${HARVEST_API}/projects?${params}&page=${page}`;
     } else {
       url = null;
     }

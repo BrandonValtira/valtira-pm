@@ -93,28 +93,31 @@ function mapHarvestProjectsForBudget(
   const budgetByProjectId = new Map(
     budgetReport.filter((r) => projectSet.has(r.project_id)).map((r) => [r.project_id, r])
   );
-  return allProjects
-    .filter((p) => projectSet.has(p.id))
-    .map((p) => {
-      const budgetRow = budgetByProjectId.get(p.id);
-      return {
-        id: p.id,
-        name: p.name,
-        budget: p.budget ?? budgetRow?.budget ?? null,
-        budget_by: p.budget_by ?? budgetRow?.budget_by ?? null,
-        budget_spent: budgetRow?.budget_spent ?? null,
-        starts_on: p.starts_on ?? null,
-        ends_on: p.ends_on ?? null,
-      };
-    });
+  const linked = allProjects.filter((p) => projectSet.has(p.id));
+  // Prefer active Harvest projects only. Stale inactive IDs often linger in
+  // harvest_project_ids after the picker was narrowed to active projects.
+  const preferred = linked.some((p) => p.is_active)
+    ? linked.filter((p) => p.is_active)
+    : linked;
+  return preferred.map((p) => {
+    const budgetRow = budgetByProjectId.get(p.id);
+    return {
+      id: p.id,
+      name: p.name,
+      budget: p.budget ?? budgetRow?.budget ?? null,
+      budget_by: p.budget_by ?? budgetRow?.budget_by ?? null,
+      budget_spent: budgetRow?.budget_spent ?? null,
+      starts_on: p.starts_on ?? null,
+      ends_on: p.ends_on ?? null,
+    };
+  });
 }
 
 export async function fetchResourcePlanningBudgetDetail(
   harvest: { accountId: string; accessToken: string },
   input: ProjectBudgetInput
 ): Promise<ResourcePlanningBudgetDetail> {
-  const harvestIds = input.harvestProjectIds;
-  if (harvestIds.length === 0) {
+  if (input.harvestProjectIds.length === 0) {
     return { summary: EMPTY_BUDGET_SUMMARY, budgetBurn: null };
   }
 
@@ -124,7 +127,16 @@ export async function fetchResourcePlanningBudgetDetail(
     getHarvestProjectBudgetReport(harvest.accountId, harvest.accessToken),
   ]);
 
-  const harvestProjects = mapHarvestProjectsForBudget(allProjects, harvestIds, budgetReport);
+  const harvestProjects = mapHarvestProjectsForBudget(
+    allProjects,
+    input.harvestProjectIds,
+    budgetReport
+  );
+  const harvestIds = harvestProjects.map((p) => p.id);
+  if (harvestIds.length === 0) {
+    return { summary: EMPTY_BUDGET_SUMMARY, budgetBurn: null };
+  }
+
   const budgetTracking = resolveBudgetTracking(harvestProjects);
   if (budgetTracking !== "hours") {
     return {
@@ -240,6 +252,11 @@ export async function fetchBudgetSummariesForProjects(
           input.harvestProjectIds,
           budgetReport
         );
+        const harvestIds = harvestProjects.map((p) => p.id);
+        if (harvestIds.length === 0) {
+          result[input.projectName] = EMPTY_BUDGET_SUMMARY;
+          return;
+        }
         const budgetTracking = resolveBudgetTracking(harvestProjects);
         if (budgetTracking !== "hours") {
           result[input.projectName] = {
@@ -260,7 +277,7 @@ export async function fetchBudgetSummariesForProjects(
           harvest.accessToken,
           contractStart,
           periodEnd,
-          input.harvestProjectIds
+          harvestIds
         );
         const spentToDate = entries.reduce((sum, e) => sum + e.hours, 0);
         result[input.projectName] = hourBudgetSummary(harvestProjects, spentToDate);

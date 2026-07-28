@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Class-based theme only (ThemeProvider). Do not use prefers-color-scheme
+   here — it overrides light mode when the OS is dark and washes out text
+   on pastel resource-planning cells. */
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -10,13 +13,6 @@
 html.dark {
   --background: #020617;
   --foreground: #f9fafb;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
@@ -93,9 +89,9 @@ body {
   fill: #ffffff;
 }
 
-/* Resource planning: keep text dark on light utilization backgrounds in dark mode */
-.dark .resource-planning-util-cell,
-.dark .resource-planning-util-cell * {
+/* Resource planning: util cells always use light pastel backgrounds — keep numbers dark */
+.resource-planning-util-cell,
+.resource-planning-util-cell * {
   color: #171717 !important;
 }
 
