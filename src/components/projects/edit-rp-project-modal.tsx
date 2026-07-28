@@ -63,7 +63,7 @@ export function EditRpProjectModal({
         // doesn't keep them in harvest_project_ids / budget totals.
         const available = new Set(list.map((p: HarvestProjectOption) => p.id));
         setSelectedIds((prev) => {
-          const next = new Set([...prev].filter((id) => available.has(id)));
+          const next = new Set(Array.from(prev).filter((id) => available.has(id)));
           return next.size === prev.size ? prev : next;
         });
       })
