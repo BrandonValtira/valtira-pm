@@ -30,12 +30,12 @@ export default async function ProjectPage({
       .single(),
     supabase
       .from("reports")
-      .select("id, period_type, period_start, period_end, status, created_at, approved_at, harvest_data_snapshot, report_format")
+      .select("id, period_type, period_start, period_end, status, created_at, approved_at, harvest_data_snapshot, report_format, report_config")
       .eq("project_id", id)
       .order("period_end", { ascending: false }),
     supabase
       .from("report_automations")
-      .select("id, period_type, day_of_week, day_of_month, time_utc, is_active, title, requires_approval, report_format, created_at")
+      .select("id, period_type, day_of_week, day_of_month, time_utc, is_active, title, requires_approval, report_format, report_config, created_at")
       .eq("project_id", id)
       .order("created_at", { ascending: true }),
   ]);

@@ -9,10 +9,16 @@ import { buildBudgetBurnSnapshot, resolveContractBoundsFromHarvest, type BudgetB
 import { getHarvestProjects, getHarvestTimeEntries, getHarvestProjectBudgetReport, type HarvestProject, type HarvestProjectBudgetResult, type HarvestTimeEntry } from "@/lib/harvest";
 import { getHarvestAccess } from "@/lib/harvest-auth";
 import {
-  normalizeReportFormat,
   REPORT_FORMAT_BUDGET_ALLOCATION,
   type ReportFormat,
 } from "@/lib/report-formats";
+import {
+  normalizeReportConfig,
+  reportFormatFromConfig,
+  stampReportConfig,
+  type ReportConfig,
+  type ReportPeriodType,
+} from "@/lib/report-config";
 import { formatDateOnly } from "@/lib/report-week";
 import { resolveReportPeriodBounds } from "@/lib/report-automation";
 
@@ -20,6 +26,7 @@ export type CreateReportOptions = {
   status?: "draft" | "pending_approval";
   approvalRequestedAt?: string | null;
   reportFormat?: ReportFormat;
+  reportConfig?: ReportConfig;
 };
 
 type HarvestSnapshotBase = {
@@ -48,7 +55,7 @@ async function buildHarvestSnapshot(
   start: string,
   end: string,
   reportFormat: ReportFormat,
-  periodType: "week" | "month"
+  periodType: ReportPeriodType
 ): Promise<HarvestSnapshotBase> {
   const supabase = createAdminClient();
   const { data: project } = await supabase
@@ -103,41 +110,43 @@ async function buildHarvestSnapshot(
       spent_date: e.spent_date,
       hours: e.hours,
       notes: e.notes,
+      billable_rate: e.billable_rate ?? null,
+      hourly_rate: e.hourly_rate ?? null,
       external_reference: e.external_reference
         ? (e.external_reference as { id: string; permalink?: string })
         : null,
     })),
   };
 
+  const contractExpiry = project.contract_expiry_date as string | null | undefined;
+  const { start: contractStart } = resolveContractBoundsFromHarvest(
+    harvestProjectsForReport,
+    contractExpiry,
+    harvestProjectsForReport.map((p) => p.name),
+    end
+  );
+  const contractEntries = await getHarvestTimeEntries(
+    harvest.accountId,
+    harvest.accessToken,
+    contractStart,
+    end,
+    harvestIds
+  );
+  snapshot.budgetBurn = buildBudgetBurnSnapshot(
+    contractEntries,
+    harvestProjectsForReport,
+    periodType === "month" ? "month" : "week",
+    start,
+    end,
+    contractExpiry,
+    harvestProjectsForReport.map((p) => p.name),
+    end
+  );
+
   if (reportFormat === REPORT_FORMAT_BUDGET_ALLOCATION) {
     const periodLabel = `${formatDateOnly(start)} – ${formatDateOnly(end)}`;
     snapshot.budgetAllocation = await buildBudgetAllocationData(mappedEntries, periodLabel);
     snapshot.timeEntries = mappedEntries;
-
-    const contractExpiry = project.contract_expiry_date as string | null | undefined;
-    const { start: contractStart } = resolveContractBoundsFromHarvest(
-      harvestProjectsForReport,
-      contractExpiry,
-      harvestProjectsForReport.map((p) => p.name),
-      end
-    );
-    const contractEntries = await getHarvestTimeEntries(
-      harvest.accountId,
-      harvest.accessToken,
-      contractStart,
-      end,
-      harvestIds
-    );
-    snapshot.budgetBurn = buildBudgetBurnSnapshot(
-      contractEntries,
-      harvestProjectsForReport,
-      periodType,
-      start,
-      end,
-      contractExpiry,
-      harvestProjectsForReport.map((p) => p.name),
-      end
-    );
   }
 
   return snapshot;
@@ -149,17 +158,22 @@ async function buildHarvestSnapshot(
 export async function createReport(
   projectId: string,
   ownerUserId: string,
-  periodType: "week" | "month",
+  periodType: ReportPeriodType,
   periodStart?: string,
   periodEnd?: string,
   options: CreateReportOptions = {}
-): Promise<{ id: string; period_type: string; period_start: string; period_end: string; status: string; created_at: string; harvest_data_snapshot: unknown; report_format: ReportFormat }> {
+): Promise<{ id: string; period_type: string; period_start: string; period_end: string; status: string; created_at: string; harvest_data_snapshot: unknown; report_format: ReportFormat; report_config: ReportConfig }> {
   const supabase = createAdminClient();
   const { data: project } = await supabase.from("projects").select("id, harvest_project_ids").eq("id", projectId).single();
   if (!project) throw new Error("Project not found");
   const harvestIds = (project.harvest_project_ids ?? []) as number[];
   if (harvestIds.length === 0) throw new Error("Project has no Harvest projects linked");
-  const reportFormat = normalizeReportFormat(options.reportFormat);
+  const reportConfig = stampReportConfig(
+    options.reportConfig
+      ? normalizeReportConfig(options.reportConfig)
+      : normalizeReportConfig({}, options.reportFormat)
+  );
+  const reportFormat = reportFormatFromConfig(reportConfig);
   const { start, end } = resolveReportPeriodBounds(periodType, periodStart, periodEnd);
   const harvestDataSnapshot = await buildHarvestSnapshot(
     ownerUserId,
@@ -177,6 +191,7 @@ export async function createReport(
     period_end: end,
     status,
     report_format: reportFormat,
+    report_config: reportConfig,
     harvest_data_snapshot: harvestDataSnapshot,
     updated_at: new Date().toISOString(),
   };
@@ -184,7 +199,7 @@ export async function createReport(
   const { data: report, error } = await supabase
     .from("reports")
     .insert(insert)
-    .select("id, period_type, period_start, period_end, status, created_at, harvest_data_snapshot, report_format")
+    .select("id, period_type, period_start, period_end, status, created_at, harvest_data_snapshot, report_format, report_config")
     .single();
   if (error) throw new Error(error.message);
   return report as {
@@ -196,6 +211,7 @@ export async function createReport(
     created_at: string;
     harvest_data_snapshot: unknown;
     report_format: ReportFormat;
+    report_config: ReportConfig;
   };
 }
 
@@ -205,22 +221,27 @@ export async function createReport(
 export async function createPlaceholderReport(
   projectId: string,
   ownerUserId: string,
-  periodType: "week" | "month",
+  periodType: ReportPeriodType,
   errorMessage: string,
-  reportFormat: ReportFormat = "standard"
-): Promise<{ id: string; period_type: string; period_start: string; period_end: string; status: string; created_at: string; report_format: ReportFormat }> {
+  reportFormat: ReportFormat = "standard",
+  reportConfig?: ReportConfig
+): Promise<{ id: string; period_type: string; period_start: string; period_end: string; status: string; created_at: string; report_format: ReportFormat; report_config: ReportConfig }> {
   const supabase = createAdminClient();
   const { data: project } = await supabase.from("projects").select("id").eq("id", projectId).single();
   if (!project) throw new Error("Project not found");
   const { start, end } = resolveReportPeriodBounds(periodType);
   const now = new Date().toISOString();
+  const config = stampReportConfig(
+    reportConfig ? normalizeReportConfig(reportConfig, reportFormat) : normalizeReportConfig({}, reportFormat)
+  );
   const insert = {
     project_id: projectId,
     period_type: periodType,
     period_start: start,
     period_end: end,
     status: "pending_approval",
-    report_format: reportFormat,
+    report_format: reportFormatFromConfig(config),
+    report_config: config,
     approval_requested_at: now,
     harvest_data_snapshot: {
       _placeholder: true,
@@ -233,7 +254,7 @@ export async function createPlaceholderReport(
   const { data: report, error } = await supabase
     .from("reports")
     .insert(insert)
-    .select("id, period_type, period_start, period_end, status, created_at, report_format")
+    .select("id, period_type, period_start, period_end, status, created_at, report_format, report_config")
     .single();
   if (error) throw new Error(error.message);
   return report as {
@@ -244,6 +265,7 @@ export async function createPlaceholderReport(
     status: string;
     created_at: string;
     report_format: ReportFormat;
+    report_config: ReportConfig;
   };
 }
 
@@ -255,18 +277,19 @@ export async function regenerateReportSnapshot(
   const supabase = createAdminClient();
   const { data: report } = await supabase
     .from("reports")
-    .select("id, project_id, period_type, period_start, period_end, report_format")
+    .select("id, project_id, period_type, period_start, period_end, report_format, report_config")
     .eq("id", reportId)
     .single();
   if (!report) throw new Error("Report not found");
-  const reportFormat = normalizeReportFormat(report.report_format);
+  const reportConfig = normalizeReportConfig(report.report_config, report.report_format);
+  const reportFormat = reportFormatFromConfig(reportConfig);
   const snapshot = await buildHarvestSnapshot(
     ownerUserId,
     report.project_id,
     report.period_start,
     report.period_end,
     reportFormat,
-    report.period_type as "week" | "month"
+    (report.period_type === "month" || report.period_type === "biweek" ? report.period_type : "week") as ReportPeriodType
   );
   const now = new Date().toISOString();
   const { data: updated, error } = await supabase

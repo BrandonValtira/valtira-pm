@@ -8,6 +8,7 @@ import {
   type BudgetBurnSnapshot,
 } from "@/lib/budget-burn-chart";
 import { REPORT_FORMAT_BUDGET_ALLOCATION, reportFormatLabel } from "@/lib/report-formats";
+import { generateReportEmailHtml } from "@/lib/report-email";
 import { formatDateOnly } from "@/lib/report-week";
 
 type TimeEntry = {
@@ -32,6 +33,8 @@ type ReportForPdf = {
   period_start: string;
   period_end: string;
   report_format?: string | null;
+  report_config?: unknown;
+  project_name?: string;
   harvest_data_snapshot?: {
     reportFormat?: string;
     timeEntries?: TimeEntry[];
@@ -262,12 +265,9 @@ function generateBudgetAllocationPdf(report: ReportForPdf): ArrayBuffer {
   return doc.output("arraybuffer") as ArrayBuffer;
 }
 
-/** Same report content as PDF, as HTML for email body (no attachment). */
-export function generateReportHtml(report: ReportForPdf): string {
-  if (isBudgetAllocationReport(report)) {
-    return generateBudgetAllocationHtml(report);
-  }
-  return generateStandardReportHtml(report);
+/** Client report HTML. Configurable sections; task tables are emailed as a CSV attachment. */
+export function generateReportHtml(report: ReportForPdf, projectName = "Project report"): string {
+  return generateReportEmailHtml(report, report.project_name ?? projectName);
 }
 
 function generateStandardReportHtml(report: ReportForPdf): string {

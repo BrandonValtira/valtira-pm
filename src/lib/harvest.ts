@@ -134,6 +134,9 @@ export type HarvestTimeEntry = {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  billable?: boolean;
+  billable_rate?: number | null;
+  hourly_rate?: number | null;
   external_reference?: { id: string; permalink?: string } | null;
 };
 

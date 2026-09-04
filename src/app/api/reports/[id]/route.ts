@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { normalizeReportConfig, stampReportConfig } from "@/lib/report-config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 
@@ -35,6 +36,16 @@ export async function PATCH(
   if (body.status === "rejected") {
     updates.status = "rejected";
     updates.rejected_at = new Date().toISOString();
+  }
+  if (body.reportConfig != null) {
+    const { data: existing } = await supabase
+      .from("reports")
+      .select("report_format, report_config")
+      .eq("id", reportId)
+      .single();
+    updates.report_config = stampReportConfig(
+      normalizeReportConfig(body.reportConfig, existing?.report_format)
+    );
   }
   const { data: updated, error } = await supabase
     .from("reports")

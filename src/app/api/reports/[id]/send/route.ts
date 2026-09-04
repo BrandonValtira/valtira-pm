@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { isLegacyReport, LEGACY_REPORT_SEND_ERROR } from "@/lib/report-config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendProjectReportToClients } from "@/lib/send-project-report";
 import { NextResponse } from "next/server";
@@ -20,7 +21,7 @@ export async function POST(
 
   const { data: report } = await supabase
     .from("reports")
-    .select("id, project_id, period_type, period_start, period_end, harvest_data_snapshot, status, report_format")
+    .select("id, project_id, period_type, period_start, period_end, harvest_data_snapshot, status, report_format, report_config")
     .eq("id", reportId)
     .single();
   if (!report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
@@ -32,6 +33,10 @@ export async function POST(
     .eq("owner_user_id", userId)
     .single();
   if (!project) return NextResponse.json({ error: "Report not found" }, { status: 404 });
+
+  if (isLegacyReport(report.report_config)) {
+    return NextResponse.json({ error: LEGACY_REPORT_SEND_ERROR }, { status: 409 });
+  }
 
   const body = await req.json().catch(() => ({}));
   const emails = Array.isArray(body.emails) ? body.emails : typeof body.emails === "string" ? [body.emails] : [];

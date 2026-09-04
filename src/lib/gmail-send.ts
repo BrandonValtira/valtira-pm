@@ -22,7 +22,7 @@ async function buildRawMessage(opts: {
   subject: string;
   html: string;
   plainText?: string;
-  attachments?: { filename: string; content: Buffer }[];
+  attachments?: { filename: string; content: Buffer; cid?: string; contentType?: string }[];
 }): Promise<Buffer> {
   const htmlTrimmed = opts.html.replace(/\r\n/g, "\n").trim();
   const text = opts.plainText ?? htmlTrimmed.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
@@ -38,7 +38,12 @@ async function buildRawMessage(opts: {
     subject: opts.subject.trim(),
     text,
     html: htmlTrimmed,
-    attachments: opts.attachments?.map((a) => ({ filename: a.filename, content: a.content })),
+    attachments: opts.attachments?.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      cid: a.cid,
+      contentType: a.contentType,
+    })),
   });
   const raw = result.message;
   if (!raw || !Buffer.isBuffer(raw)) {
@@ -52,7 +57,7 @@ export type SendEmailViaGmailOptions = {
   cc?: string[];
   subject: string;
   html: string;
-  attachments?: { filename: string; content: Buffer }[];
+  attachments?: { filename: string; content: Buffer; cid?: string; contentType?: string }[];
 };
 
 /**

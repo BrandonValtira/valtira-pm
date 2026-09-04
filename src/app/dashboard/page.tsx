@@ -6,6 +6,7 @@ import { DashboardAccounts } from "@/components/dashboard-accounts";
 import { DashboardOnboardingWrapper } from "@/components/dashboard-onboarding-wrapper";
 import { DashboardUtilizationWidgets } from "@/components/dashboard-utilization-widgets";
 import { OutgoingReportsList } from "@/components/outgoing-reports-list";
+import { isLegacyReport } from "@/lib/report-config";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -37,15 +38,21 @@ export default async function DashboardPage() {
       .not("access_token", "is", null),
   ]);
   const projectIds = (projects ?? []).map((p) => p.id);
-  const { data: reportsNeedingReview } = projectIds.length > 0
+  const { data: existingReports } = projectIds.length > 0
     ? await supabase
         .from("reports")
-        .select("project_id")
+        .select("project_id, status, report_config")
         .in("project_id", projectIds)
-        .in("status", ["pending_approval", "rejected"])
     : { data: [] };
   const projectIdsNeedingReview = new Set(
-    (reportsNeedingReview ?? []).map((r: { project_id: string }) => r.project_id)
+    (existingReports ?? [])
+      .filter((r: { status: string }) => r.status === "pending_approval" || r.status === "rejected")
+      .map((r: { project_id: string }) => r.project_id)
+  );
+  const projectIdsWithLegacyReports = new Set(
+    (existingReports ?? [])
+      .filter((r: { report_config?: unknown }) => isLegacyReport(r.report_config))
+      .map((r: { project_id: string }) => r.project_id)
   );
 
   if (error) {
@@ -92,11 +99,18 @@ export default async function DashboardPage() {
                       Added {new Date(project.created_at).toLocaleDateString()}
                     </p>
                   </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                  {projectIdsWithLegacyReports.has(project.id) && (
+                    <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                      Outdated reports
+                    </span>
+                  )}
                   {projectIdsNeedingReview.has(project.id) && (
-                    <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                    <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
                       Needs review
                     </span>
                   )}
+                  </div>
                 </div>
               </Link>
             </li>

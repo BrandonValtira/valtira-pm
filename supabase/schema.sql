@@ -75,12 +75,13 @@ CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_user_id);
 CREATE TABLE IF NOT EXISTS reports (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  period_type TEXT NOT NULL CHECK (period_type IN ('week', 'month')),
+  period_type TEXT NOT NULL CHECK (period_type IN ('week', 'biweek', 'month')),
   period_start DATE NOT NULL,
   period_end DATE NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'pending_approval', 'approved', 'sent', 'rejected')),
   harvest_data_snapshot JSONB,
   report_format TEXT NOT NULL DEFAULT 'standard' CHECK (report_format IN ('standard', 'budget_allocation')),
+  report_config JSONB NOT NULL DEFAULT '{}'::jsonb,
   pdf_storage_path TEXT,
   approved_at TIMESTAMPTZ,
   approved_by_user_id UUID REFERENCES users(id),
@@ -109,12 +110,13 @@ CREATE INDEX IF NOT EXISTS idx_report_history_report ON report_history(report_id
 CREATE TABLE IF NOT EXISTS report_automations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  period_type TEXT NOT NULL CHECK (period_type IN ('week', 'month')),
+  period_type TEXT NOT NULL CHECK (period_type IN ('week', 'biweek', 'month')),
   day_of_week SMALLINT,
   day_of_month SMALLINT,
   time_utc TEXT NOT NULL,
   is_active BOOLEAN NOT NULL DEFAULT true,
   report_format TEXT NOT NULL DEFAULT 'standard' CHECK (report_format IN ('standard', 'budget_allocation')),
+  report_config JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

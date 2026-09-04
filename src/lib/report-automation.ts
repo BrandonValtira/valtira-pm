@@ -1,5 +1,6 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
-import { getHarvestWeekBounds } from "@/lib/report-week";
+import type { ReportPeriodType } from "@/lib/report-config";
+import { getHarvestBiweekBounds, getHarvestWeekBounds } from "@/lib/report-week";
 
 const REMINDER_MIN_HOURS_AFTER_REQUEST = 24;
 const REMINDER_MIN_HOURS_BETWEEN = 72;
@@ -18,7 +19,7 @@ function getLastMonthBounds(): { start: string; end: string } {
 }
 
 export function resolveReportPeriodBounds(
-  periodType: "week" | "month",
+  periodType: ReportPeriodType | string,
   periodStart?: string,
   periodEnd?: string
 ): { start: string; end: string } {
@@ -26,7 +27,18 @@ export function resolveReportPeriodBounds(
     return { start: periodStart.slice(0, 10), end: periodEnd.slice(0, 10) };
   }
   if (periodType === "month") return getLastMonthBounds();
+  if (periodType === "biweek") return getHarvestBiweekBounds();
   return getHarvestWeekBounds();
+}
+
+/** Even weeks since the automation was created (Central Monday-start week). */
+export function isBiweekSendWeek(createdAt: string, now = new Date()): boolean {
+  const createdWeek = getCentralWeekStartKey(new Date(createdAt));
+  const currentWeek = getCentralWeekStartKey(now);
+  const created = new Date(`${createdWeek}T12:00:00`);
+  const current = new Date(`${currentWeek}T12:00:00`);
+  const weeks = Math.round((current.getTime() - created.getTime()) / (7 * 24 * 60 * 60 * 1000));
+  return weeks >= 0 && weeks % 2 === 0;
 }
 
 /** Monday-start calendar week in America/Chicago, as YYYY-MM-DD. */

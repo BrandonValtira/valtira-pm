@@ -16,6 +16,15 @@ function getCentralDateString(): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+function addDaysYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const date = new Date(y, m - 1, d + days);
+  const yy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
 /** Last completed week (Sun–Sat, Harvest default) in Central. Same definition everywhere: approval, send, PDF. */
 export function getHarvestWeekBounds(): { start: string; end: string } {
   const today = getCentralDateString();
@@ -31,6 +40,12 @@ export function getHarvestWeekBounds(): { start: string; end: string } {
     start: lastSunday.toISOString().slice(0, 10),
     end: lastSaturday.toISOString().slice(0, 10),
   };
+}
+
+/** Last two completed Harvest weeks (Sun–Sat × 2). */
+export function getHarvestBiweekBounds(): { start: string; end: string } {
+  const lastWeek = getHarvestWeekBounds();
+  return { start: addDaysYmd(lastWeek.start, -7), end: lastWeek.end };
 }
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

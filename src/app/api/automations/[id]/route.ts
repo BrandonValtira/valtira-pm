@@ -1,5 +1,11 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  configRequiresApproval,
+  normalizePeriodType,
+  parseReportConfigInput,
+  reportFormatFromConfig,
+} from "@/lib/report-config";
 import { NextResponse } from "next/server";
 
 async function checkAutomationOwner(
@@ -38,12 +44,25 @@ export async function PATCH(
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (typeof body.is_active === "boolean") updates.is_active = body.is_active;
   if (typeof body.title === "string") updates.title = body.title.trim().slice(0, 200) || null;
-  if (typeof body.requiresApproval === "boolean") updates.requires_approval = body.requiresApproval;
-  if (body.periodType === "month" || body.periodType === "week") updates.period_type = body.periodType;
   if (typeof body.timeUtc === "string" && /^\d{1,2}:\d{2}$/.test(body.timeUtc)) updates.time_utc = body.timeUtc;
   if (typeof body.dayOfWeek === "number" && body.dayOfWeek >= 0 && body.dayOfWeek <= 6) updates.day_of_week = body.dayOfWeek;
-  if (body.reportFormat === "budget_allocation" || body.reportFormat === "standard") {
-    updates.report_format = body.reportFormat;
+  if (typeof body.dayOfMonth === "number" && body.dayOfMonth >= 1 && body.dayOfMonth <= 28) {
+    updates.day_of_month = body.dayOfMonth;
+  }
+  if (body.periodType === "month" || body.periodType === "week" || body.periodType === "biweek") {
+    const periodType = normalizePeriodType(body.periodType);
+    updates.period_type = periodType;
+    if (periodType === "month") updates.day_of_week = null;
+    if (periodType !== "month") updates.day_of_month = null;
+  }
+  if (body.reportConfig != null) {
+    const reportConfig = parseReportConfigInput(body.reportConfig);
+    updates.report_config = reportConfig;
+    updates.report_format = reportFormatFromConfig(reportConfig);
+    if (configRequiresApproval(reportConfig)) updates.requires_approval = true;
+    else if (typeof body.requiresApproval === "boolean") updates.requires_approval = body.requiresApproval;
+  } else if (typeof body.requiresApproval === "boolean") {
+    updates.requires_approval = body.requiresApproval;
   }
   const { data, error } = await supabase
     .from("report_automations")

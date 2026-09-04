@@ -1,7 +1,7 @@
 import { auth } from "@/auth";
 import { createReport } from "@/lib/create-report";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { normalizeReportFormat } from "@/lib/report-formats";
+import { normalizePeriodType, parseReportConfigInput } from "@/lib/report-config";
 import { NextResponse } from "next/server";
 
 async function getProjectAndCheckOwner(
@@ -32,7 +32,7 @@ export async function GET(
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const { data: reports, error } = await supabase
     .from("reports")
-    .select("id, period_type, period_start, period_end, status, created_at, approved_at")
+    .select("id, period_type, period_start, period_end, status, created_at, approved_at, report_format, report_config")
     .eq("project_id", projectId)
     .order("period_end", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -59,8 +59,8 @@ export async function POST(
     );
   }
   const body = await req.json().catch(() => ({}));
-  const periodType = body.periodType === "month" ? "month" : "week";
-  const reportFormat = normalizeReportFormat(body.reportFormat);
+  const periodType = normalizePeriodType(body.periodType);
+  const reportConfig = parseReportConfigInput(body.reportConfig);
   let periodStart: string | undefined;
   let periodEnd: string | undefined;
   if (typeof body.periodStart === "string" && typeof body.periodEnd === "string") {
@@ -74,7 +74,7 @@ export async function POST(
       periodType,
       periodStart,
       periodEnd,
-      { status: "draft", reportFormat }
+      { status: "draft", reportConfig }
     );
     return NextResponse.json(report);
   } catch (e) {

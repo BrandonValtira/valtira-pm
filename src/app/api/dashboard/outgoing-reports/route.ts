@@ -23,10 +23,11 @@ function getCalendarDateOfNthBusinessDay(year: number, month: number, n: number)
 
 /** Get next run in Central; return { sortKey, label } for display and sorting. Monthly = Nth business day. */
 function getNextRunCentral(
-  periodType: "week" | "month",
+  periodType: "week" | "biweek" | "month",
   dayOfWeek: number,
   businessDayOfMonth: number,
-  timeUtc: string
+  timeUtc: string,
+  createdAt?: string
 ): { sortKey: string; label: string } {
   const [h, m] = timeUtc.slice(0, 5).split(":").map(Number);
   const hour = Math.min(23, Math.max(0, h ?? 9));
@@ -77,6 +78,11 @@ function getNextRunCentral(
       daysAhead = 7;
     }
     const nextDate = new Date(currentYear, currentMonth - 1, currentDay + daysAhead);
+    if (periodType === "biweek" && createdAt) {
+      const created = new Date(createdAt);
+      const weeks = Math.round((nextDate.getTime() - created.getTime()) / (7 * 24 * 60 * 60 * 1000));
+      if (weeks % 2 !== 0) nextDate.setDate(nextDate.getDate() + 7);
+    }
     y = nextDate.getFullYear();
     mo = nextDate.getMonth() + 1;
     d = nextDate.getDate();
@@ -114,7 +120,7 @@ export async function GET() {
 
   const { data: automations } = await supabase
     .from("report_automations")
-    .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, title")
+    .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, title, created_at")
     .in("project_id", projectIds)
     .eq("is_active", true);
 
@@ -122,13 +128,16 @@ export async function GET() {
 
   for (const a of automations ?? []) {
     const { sortKey, label: nextRunLabel } = getNextRunCentral(
-      a.period_type as "week" | "month",
+      a.period_type === "month" ? "month" : a.period_type === "biweek" ? "biweek" : "week",
       a.day_of_week ?? 1,
       a.day_of_month ?? 1,
-      (a.time_utc ?? "09:00").slice(0, 5)
+      (a.time_utc ?? "09:00").slice(0, 5),
+      a.created_at
     );
     const projectName = projectNames[a.project_id] ?? "Project";
-    const label = a.title?.trim() || (a.period_type === "month" ? "Monthly report" : "Weekly report");
+    const label =
+      a.title?.trim() ||
+      (a.period_type === "month" ? "Monthly report" : a.period_type === "biweek" ? "Bi-weekly report" : "Weekly report");
     items.push({ projectName, label, nextRunLabel, sortKey, projectId: a.project_id });
   }
 

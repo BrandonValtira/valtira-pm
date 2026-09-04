@@ -9,6 +9,8 @@ export type BudgetAllocationTimeEntry = {
   spent_date: string;
   hours: number;
   notes: string | null;
+  billable_rate?: number | null;
+  hourly_rate?: number | null;
   external_reference?: { id: string; permalink?: string } | null;
   project_code?: string | null;
 };
@@ -203,6 +205,8 @@ export function mapHarvestEntriesForBudgetAllocation(
     spent_date: e.spent_date,
     hours: e.hours,
     notes: e.notes,
+    billable_rate: e.billable_rate ?? null,
+    hourly_rate: e.hourly_rate ?? null,
     external_reference: e.external_reference
       ? { id: e.external_reference.id, permalink: e.external_reference.permalink }
       : null,

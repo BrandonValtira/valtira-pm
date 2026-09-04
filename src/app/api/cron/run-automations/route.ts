@@ -8,10 +8,16 @@ import {
 } from "@/lib/send-report-approval-email";
 import { sendProjectReportToClients } from "@/lib/send-project-report";
 import {
+  configRequiresApproval,
+  normalizePeriodType,
+  normalizeReportConfig,
+} from "@/lib/report-config";
+import {
   canRetryApprovalEmail,
   canSendReportReminder,
   findExistingReportForPeriod,
   getCentralWeekStartKey,
+  isBiweekSendWeek,
   resolveReportPeriodBounds,
 } from "@/lib/report-automation";
 import { NextResponse } from "next/server";
@@ -76,6 +82,7 @@ function isAutomationDue(
     day_of_week: number | null;
     day_of_month: number | null;
     time_utc: string;
+    created_at?: string;
   },
   timeUtc: string,
   dayOfWeek: number,
@@ -88,6 +95,10 @@ function isAutomationDue(
   if (schedH !== currH) return false;
   if (schedM !== 0 && !(schedM === currM)) return false;
   if (automation.period_type === "week") return (automation.day_of_week ?? 0) === dayOfWeek;
+  if (automation.period_type === "biweek") {
+    if ((automation.day_of_week ?? 0) !== dayOfWeek) return false;
+    return automation.created_at ? isBiweekSendWeek(automation.created_at) : true;
+  }
   if (automation.period_type === "month") {
     // Only fire on weekdays — otherwise Sat/Sun keep the same business-day count as Friday.
     const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
@@ -178,12 +189,14 @@ export async function GET(req: Request) {
     time_utc: string;
     requires_approval: boolean;
     report_format: string;
+    report_config?: unknown;
+    created_at?: string;
   }[];
 
   if (isTestRun && requestedAutomationId && userId) {
     const { data: automation } = await supabase
       .from("report_automations")
-      .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, requires_approval, report_format")
+      .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, requires_approval, report_format, report_config, created_at")
       .eq("id", requestedAutomationId)
       .eq("is_active", true)
       .maybeSingle();
@@ -205,7 +218,7 @@ export async function GET(req: Request) {
   } else {
     const { data: automations } = await supabase
       .from("report_automations")
-      .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, requires_approval, report_format")
+      .select("id, project_id, period_type, day_of_week, day_of_month, time_utc, requires_approval, report_format, report_config, created_at")
       .eq("is_active", true);
 
     due = isTestRun
@@ -231,10 +244,11 @@ export async function GET(req: Request) {
       period_end: string;
       harvest_data_snapshot?: unknown;
       report_format?: string | null;
+      report_config?: unknown;
     };
-    const needsApproval = automationNeedsApproval(automation.requires_approval);
-    const reportFormat =
-      automation.report_format === "budget_allocation" ? "budget_allocation" : "standard";
+    const reportConfig = normalizeReportConfig(automation.report_config, automation.report_format);
+    const needsApproval =
+      automationNeedsApproval(automation.requires_approval) || configRequiresApproval(reportConfig);
 
     try {
       const { data: project } = await supabase
@@ -244,7 +258,7 @@ export async function GET(req: Request) {
         .single();
       if (!project?.owner_user_id) continue;
 
-      const periodType = automation.period_type as "week" | "month";
+      const periodType = normalizePeriodType(automation.period_type);
       const { start: periodStart, end: periodEnd } = resolveReportPeriodBounds(periodType);
       if (!isTestRun) {
         const existingId = await findExistingReportForPeriod(
@@ -265,13 +279,13 @@ export async function GET(req: Request) {
           report = await createReport(
             automation.project_id,
             project.owner_user_id,
-            automation.period_type as "week" | "month",
+            periodType,
             undefined,
             undefined,
             {
               status: "pending_approval",
               approvalRequestedAt: new Date().toISOString(),
-              reportFormat,
+              reportConfig,
             }
           );
         } catch (createErr) {
@@ -279,9 +293,10 @@ export async function GET(req: Request) {
           report = await createPlaceholderReport(
             automation.project_id,
             project.owner_user_id,
-            automation.period_type as "week" | "month",
+            periodType,
             msg,
-            reportFormat
+            reportConfig.components.projectSummary ? "budget_allocation" : "standard",
+            reportConfig
           );
           errors.push(`report placeholder (Harvest failed) ${automation.project_id}: ${msg}`);
         }
@@ -306,19 +321,20 @@ export async function GET(req: Request) {
         report = await createReport(
           automation.project_id,
           project.owner_user_id,
-          automation.period_type as "week" | "month",
+          periodType,
           undefined,
           undefined,
-          { reportFormat }
+          { reportConfig }
         );
       } catch (createErr) {
         const msg = createErr instanceof Error ? createErr.message : String(createErr);
         report = await createPlaceholderReport(
           automation.project_id,
           project.owner_user_id,
-          automation.period_type as "week" | "month",
+          periodType,
           msg,
-          reportFormat
+          reportConfig.components.projectSummary ? "budget_allocation" : "standard",
+          reportConfig
         );
         errors.push(`auto-send failed (Harvest) ${automation.project_id}: ${msg}; owner notified to review`);
         const toEmails = await getApprovalRecipientEmails(supabase, project.owner_user_id);
