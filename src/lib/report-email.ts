@@ -8,7 +8,6 @@ import {
   budgetReportLabel,
   formatReportTitleLine,
   normalizeReportConfig,
-  type ReportConfig,
 } from "@/lib/report-config";
 import { formatDateOnly } from "@/lib/report-week";
 
