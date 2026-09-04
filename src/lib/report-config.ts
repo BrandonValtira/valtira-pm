@@ -122,6 +122,19 @@ export function isLegacyReport(reportConfig: unknown): boolean {
   return (reportConfig as { schemaVersion?: unknown }).schemaVersion !== CURRENT_REPORT_SCHEMA_VERSION;
 }
 
+/** Already-sent reports stay valid. Only unsent reports from before the update are blocked. */
+export function isOutdatedOutgoingReport(
+  reportConfig: unknown,
+  status: string | null | undefined
+): boolean {
+  if (status === "sent") return false;
+  return isLegacyReport(reportConfig);
+}
+
+export function isOutdatedAutomation(reportConfig: unknown): boolean {
+  return isLegacyReport(reportConfig);
+}
+
 export function normalizePeriodType(value: unknown): ReportPeriodType {
   if (value === "month" || value === "biweek" || value === "week") return value;
   return "week";

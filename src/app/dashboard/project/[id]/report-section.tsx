@@ -15,7 +15,8 @@ import {
   budgetReportLabel,
   defaultReportConfig,
   formatReportTitleLine,
-  isLegacyReport,
+  isOutdatedAutomation,
+  isOutdatedOutgoingReport,
   normalizePeriodType,
   normalizeReportConfig,
   periodTypeLabel,
@@ -146,23 +147,6 @@ function WarningGlyph() {
         clipRule="evenodd"
       />
     </svg>
-  );
-}
-
-function LegacyReportWarning() {
-  return (
-    <div
-      role="alert"
-      className="mt-4 flex gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"
-    >
-      <WarningGlyph />
-      <div>
-        <p className="font-semibold">This report is outdated</p>
-        <p className="mt-1 text-amber-900">
-          Due to a recent app update, existing reports can no longer be sent. Delete this report and generate a new one.
-        </p>
-      </div>
-    </div>
   );
 }
 
@@ -313,12 +297,9 @@ function ReportContent({ report }: { report: Report }) {
   const reportKind = budgetReportLabel(report.period_type);
   const dateRange = `${formatReportDate(report.period_start)} – ${formatReportDate(report.period_end)}`;
 
-  const legacy = isLegacyReport(report.report_config);
-
   return (
     <div className="rounded-xl border border-[#E8E2DA] bg-[#F6F3EE]/40 p-5">
       <ValtiraLogo height={36} />
-      {legacy && <LegacyReportWarning />}
       {isPlaceholder && (
         <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <p className="font-medium">Report was created but Harvest data could not be loaded.</p>
@@ -468,8 +449,10 @@ export function ReportSection({
 
   const sentReports = reports.filter((r) => r.status === "sent");
   const reportsNeedingReview = reports.filter((r) => r.status === "pending_approval" || r.status === "rejected");
-  const legacyReports = reports.filter((r) => isLegacyReport(r.report_config));
-  const modalIsLegacy = modalReport ? isLegacyReport(modalReport.report_config) : false;
+  const outdatedAutomations = automations.filter((a) => isOutdatedAutomation(a.report_config));
+  const modalIsOutdatedOutgoing = modalReport
+    ? isOutdatedOutgoingReport(modalReport.report_config, modalReport.status)
+    : false;
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/automations`)
@@ -780,7 +763,7 @@ export function ReportSection({
     const emails = sendToEmails.map((e) => e.trim()).filter(Boolean);
     if (emails.length === 0) return;
     if (!modalReport) return;
-    if (isLegacyReport(modalReport.report_config)) {
+    if (isOutdatedOutgoingReport(modalReport.report_config, modalReport.status)) {
       setError("This report is outdated and can no longer be sent. Delete it and generate a new one.");
       return;
     }
@@ -832,60 +815,27 @@ export function ReportSection({
   return (
     <>
       {portalTarget && createPortal(reportActions, portalTarget)}
-      {legacyReports.length > 0 && (
-        <div role="alert" className="mt-8 rounded-xl border border-amber-300 bg-amber-50 p-5">
-          <div className="flex gap-3">
-            <WarningGlyph />
-            <div>
-              <h2 className="text-lg font-semibold text-amber-950">Outdated reports</h2>
-              <p className="mt-1 text-sm text-amber-900">
-                Due to a recent app update, existing reports can no longer be sent. Delete these reports and generate new ones.
-              </p>
-            </div>
-          </div>
-          <ul className="mt-4 space-y-2">
-            {legacyReports.map((report) => (
-              <li
-                key={report.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setModalReport(report);
-                    setSendToEmails(
-                      (report.status === "pending_approval" || report.status === "draft") && clientEmails.length > 0
-                        ? [...clientEmails]
-                        : [""]
-                    );
-                  }}
-                  className="text-left text-sm font-medium text-amber-950 hover:underline"
-                >
-                  {periodTypeLabel(report.period_type)} · {formatReportDate(report.period_start)} –{" "}
-                  {formatReportDate(report.period_end)}
-                  <span className="ml-2 font-normal text-amber-800">
-                    {report.status === "sent" ? "Sent" : report.status.replace("_", " ")}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => deleteReport(report.id)}
-                  disabled={!!loading}
-                  className="text-sm font-medium text-red-700 hover:underline disabled:opacity-50"
-                >
-                  {loading === `delete-${report.id}` ? "Deleting…" : "Delete"}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       <div className="mt-8 rounded-xl border border-neutral-200 bg-white p-6">
         <div>
-          <h2 className="text-lg font-medium text-neutral-900">Automated Reports</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-medium text-neutral-900">Automated Reports</h2>
+            {outdatedAutomations.length > 0 && (
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                Needs update
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-sm text-neutral-600">
             Create one or more report automations. When active, the report is generated on schedule with the components you selected. Approval is required if you include additional information.
           </p>
+          {outdatedAutomations.length > 0 && (
+            <div role="alert" className="mt-3 flex gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+              <WarningGlyph />
+              <p>
+                Open each automation marked Needs update, confirm the new report options, and save. Automations created before the recent app update will not send until you do.
+              </p>
+            </div>
+          )}
         </div>
 
       {/* Automations list */}
@@ -916,6 +866,11 @@ export function ReportSection({
                   >
                     <span className="text-sm font-medium text-neutral-900">
                       {a.title?.trim() || `${periodTypeLabel(a.period_type)} report`}
+                      {isOutdatedAutomation(a.report_config) && (
+                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                          Needs update
+                        </span>
+                      )}
                       <span className="ml-1 text-xs font-normal text-neutral-600">
                         · {summarizeReportComponents(normalizeReportConfig(a.report_config, a.report_format))}
                       </span>
@@ -930,7 +885,8 @@ export function ReportSection({
                       <button
                         type="button"
                         onClick={() => sendTest(a.id)}
-                        disabled={!!loading || sendTestAutomationId !== null}
+                        disabled={!!loading || sendTestAutomationId !== null || isOutdatedAutomation(a.report_config)}
+                        title={isOutdatedAutomation(a.report_config) ? "Update and save this automation before sending a test." : undefined}
                         className="shrink-0 rounded-lg border border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
                       >
                         {sendTestAutomationId === a.id ? "Sending…" : "Send test"}
@@ -1076,7 +1032,7 @@ export function ReportSection({
             <div className="mt-4">
               <ReportContent report={modalReport} />
             </div>
-            {modalReport.status === "pending_approval" && !modalIsLegacy && (
+            {modalReport.status === "pending_approval" && !modalIsOutdatedOutgoing && (
               <div className="mt-6 flex flex-wrap gap-3 border-t border-neutral-200 pt-4">
                 <button
                   type="button"
@@ -1122,7 +1078,7 @@ export function ReportSection({
                 </button>
               </div>
             )}
-            {modalReport.status === "rejected" && !modalIsLegacy && (
+            {modalReport.status === "rejected" && !modalIsOutdatedOutgoing && (
               <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm text-amber-900">
                   It looks like this report is not ready yet. Follow up with your team on Slack to update their time entries. Once that&apos;s done, come back here and regenerate the report to review and approve for sending. Or delete this report if you don&apos;t need it.
@@ -1147,7 +1103,7 @@ export function ReportSection({
                 </div>
               </div>
             )}
-            {(modalIsLegacy || ["draft", "pending_approval"].includes(modalReport.status)) && (
+            {(modalIsOutdatedOutgoing || ["draft", "pending_approval"].includes(modalReport.status)) && (
               <div className="mt-4">
                 <button
                   type="button"
@@ -1159,7 +1115,7 @@ export function ReportSection({
                 </button>
               </div>
             )}
-            {modalIsLegacy ? null : (
+            {modalIsOutdatedOutgoing ? null : (
             <div className="mt-6 border-t border-neutral-200 pt-4">
               <h4 className="text-sm font-medium text-neutral-700">Send to</h4>
               <p className="mt-1 text-xs text-neutral-600">Send this report to one or more people by email.</p>
@@ -1224,9 +1180,6 @@ export function ReportSection({
                 >
                   <span className="font-medium text-amber-900">
                     {periodTypeLabel(report.period_type)} · {formatReportDate(report.period_start)} – {formatReportDate(report.period_end)}
-                    {isLegacyReport(report.report_config) ? (
-                      <span className="ml-2 font-normal text-amber-700">· Outdated</span>
-                    ) : null}
                   </span>
                   <span className="text-amber-700">{report.status === "rejected" ? "Rejected" : "Pending approval"}</span>
                 </button>
@@ -1277,9 +1230,6 @@ export function ReportSection({
                     >
                       <span className="font-medium text-neutral-900">
                         {periodTypeLabel(report.period_type)} · {formatReportDate(report.period_start)} – {formatReportDate(report.period_end)}
-                        {isLegacyReport(report.report_config) ? (
-                          <span className="ml-2 font-normal text-amber-700">· Outdated</span>
-                        ) : null}
                       </span>
                       <span className="text-neutral-600">View</span>
                     </button>
@@ -1532,6 +1482,11 @@ function EditAutomationForm({
       <p className="mt-1 text-xs text-neutral-900">
         The report is generated from the last completed week, two weeks, or month using the components you select.
       </p>
+      {isOutdatedAutomation(automation.report_config) && (
+        <p className="mt-2 text-xs text-amber-800">
+          Confirm the report options below and save to update this automation.
+        </p>
+      )}
       <div className="mt-3 space-y-3">
         <ReportConfigFields
           config={reportConfig}

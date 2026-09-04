@@ -5,7 +5,7 @@ import { sendEmailViaGmail } from "@/lib/gmail-send";
 import { generateReportEmailHtml, formatReportDateRange, VALTIRA_LOGO_CID } from "@/lib/report-email";
 import {
   budgetReportLabel,
-  isLegacyReport,
+  isOutdatedOutgoingReport,
   LEGACY_REPORT_SEND_ERROR,
   normalizeReportConfig,
 } from "@/lib/report-config";
@@ -19,6 +19,7 @@ type ReportRow = {
   harvest_data_snapshot?: unknown | null;
   report_format?: string | null;
   report_config?: unknown;
+  status?: string | null;
 };
 
 type ProjectRow = {
@@ -42,7 +43,7 @@ export async function sendProjectReportToClients(
   report: ReportRow,
   project: ProjectRow
 ): Promise<{ error?: string; sentTo?: string[] }> {
-  if (isLegacyReport(report.report_config)) {
+  if (isOutdatedOutgoingReport(report.report_config, report.status)) {
     return { error: LEGACY_REPORT_SEND_ERROR };
   }
 

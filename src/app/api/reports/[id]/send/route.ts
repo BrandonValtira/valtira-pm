@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { isLegacyReport, LEGACY_REPORT_SEND_ERROR } from "@/lib/report-config";
+import { isOutdatedOutgoingReport, LEGACY_REPORT_SEND_ERROR } from "@/lib/report-config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendProjectReportToClients } from "@/lib/send-project-report";
 import { NextResponse } from "next/server";
@@ -34,7 +34,7 @@ export async function POST(
     .single();
   if (!project) return NextResponse.json({ error: "Report not found" }, { status: 404 });
 
-  if (isLegacyReport(report.report_config)) {
+  if (isOutdatedOutgoingReport(report.report_config, report.status)) {
     return NextResponse.json({ error: LEGACY_REPORT_SEND_ERROR }, { status: 409 });
   }
 

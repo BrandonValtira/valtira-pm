@@ -6,7 +6,7 @@ import { DashboardAccounts } from "@/components/dashboard-accounts";
 import { DashboardOnboardingWrapper } from "@/components/dashboard-onboarding-wrapper";
 import { DashboardUtilizationWidgets } from "@/components/dashboard-utilization-widgets";
 import { OutgoingReportsList } from "@/components/outgoing-reports-list";
-import { isLegacyReport } from "@/lib/report-config";
+import { isOutdatedAutomation } from "@/lib/report-config";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -38,21 +38,26 @@ export default async function DashboardPage() {
       .not("access_token", "is", null),
   ]);
   const projectIds = (projects ?? []).map((p) => p.id);
-  const { data: existingReports } = projectIds.length > 0
+  const { data: reportsNeedingReview } = projectIds.length > 0
     ? await supabase
         .from("reports")
-        .select("project_id, status, report_config")
+        .select("project_id")
+        .in("project_id", projectIds)
+        .in("status", ["pending_approval", "rejected"])
+    : { data: [] };
+  const { data: existingAutomations } = projectIds.length > 0
+    ? await supabase
+        .from("report_automations")
+        .select("project_id, report_config")
         .in("project_id", projectIds)
     : { data: [] };
   const projectIdsNeedingReview = new Set(
-    (existingReports ?? [])
-      .filter((r: { status: string }) => r.status === "pending_approval" || r.status === "rejected")
-      .map((r: { project_id: string }) => r.project_id)
+    (reportsNeedingReview ?? []).map((r: { project_id: string }) => r.project_id)
   );
-  const projectIdsWithLegacyReports = new Set(
-    (existingReports ?? [])
-      .filter((r: { report_config?: unknown }) => isLegacyReport(r.report_config))
-      .map((r: { project_id: string }) => r.project_id)
+  const projectIdsNeedingAutomationUpdate = new Set(
+    (existingAutomations ?? [])
+      .filter((a: { report_config?: unknown }) => isOutdatedAutomation(a.report_config))
+      .map((a: { project_id: string }) => a.project_id)
   );
 
   if (error) {
@@ -100,9 +105,9 @@ export default async function DashboardPage() {
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
-                  {projectIdsWithLegacyReports.has(project.id) && (
+                  {projectIdsNeedingAutomationUpdate.has(project.id) && (
                     <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
-                      Outdated reports
+                      Needs update
                     </span>
                   )}
                   {projectIdsNeedingReview.has(project.id) && (

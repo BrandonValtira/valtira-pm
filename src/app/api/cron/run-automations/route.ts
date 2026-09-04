@@ -9,6 +9,7 @@ import {
 import { sendProjectReportToClients } from "@/lib/send-project-report";
 import {
   configRequiresApproval,
+  isOutdatedAutomation,
   normalizePeriodType,
   normalizeReportConfig,
 } from "@/lib/report-config";
@@ -214,6 +215,12 @@ export async function GET(req: Request) {
     if (project.owner_user_id !== userId && !isSuperAdmin) {
       return NextResponse.json({ error: "You don't have access to this automation." }, { status: 403 });
     }
+    if (isOutdatedAutomation(automation.report_config)) {
+      return NextResponse.json(
+        { error: "This automation needs to be updated and saved before it can send." },
+        { status: 409 }
+      );
+    }
     due = [automation];
   } else {
     const { data: automations } = await supabase
@@ -237,6 +244,10 @@ export async function GET(req: Request) {
   const errors: string[] = [];
 
   for (const automation of due) {
+    if (isOutdatedAutomation(automation.report_config)) {
+      (results.skipped ??= []).push(automation.id);
+      continue;
+    }
     let report: {
       id: string;
       period_type: string;
