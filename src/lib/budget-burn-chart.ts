@@ -1,3 +1,13 @@
+import {
+  averageProjectHourlyRate,
+  estimateHoursCost,
+  formatBudgetAmount,
+  projectBudgetAmount,
+  resolveHarvestBudgetTracking,
+  type BudgetUnit,
+  type HarvestBudgetFields,
+  type TimeEntryRateFields,
+} from "@/lib/budget-unit";
 import type { HarvestTimeEntry } from "@/lib/harvest";
 
 export type BudgetBurnChartPoint = {
@@ -20,9 +30,7 @@ export type BudgetBurnSnapshot = {
   cumulativeSpentThroughPeriod: number;
 };
 
-type HarvestProjectBudget = {
-  budget: number | null;
-  budget_spent?: number | null;
+type HarvestProjectBudget = HarvestBudgetFields & {
   starts_on?: string | null;
   ends_on?: string | null;
   name?: string;
@@ -40,6 +48,9 @@ export type BudgetBurnDisplayVariance = {
 };
 
 export type BudgetBurnDisplay = {
+  unit: BudgetUnit;
+  periodActualUnit: BudgetUnit;
+  spentToDateUnit: BudgetUnit;
   periodLabel: string;
   periodActual: number;
   periodBudget: number;
@@ -80,6 +91,7 @@ export function buildBudgetBurnDisplay(params: {
   periodType: "week" | "month";
   periodEnd: string;
   periodHours: number;
+  periodEntries?: TimeEntryRateFields[];
 }): BudgetBurnDisplay | null {
   const {
     budgetBurn: burn,
@@ -88,18 +100,50 @@ export function buildBudgetBurnDisplay(params: {
     periodType,
     periodEnd,
     periodHours,
+    periodEntries = [],
   } = params;
 
+  const tracking = resolveHarvestBudgetTracking(harvestProjects);
+  const unit: BudgetUnit = tracking === "cost" ? "cost" : "hours";
   const fallback = !burn
-    ? budgetBurnFromHarvestProjects(harvestProjects, periodType, periodHours)
+    ? budgetBurnFromHarvestProjects(harvestProjects, periodType, periodHours, unit)
     : null;
-  const totalBudget = burn?.totalBudgetHours ?? fallback?.totalBudgetHours ?? 0;
+  const totalBudget =
+    burn?.totalBudgetHours ??
+    fallback?.totalBudgetHours ??
+    harvestProjects.reduce((sum, project) => sum + projectBudgetAmount(project, unit), 0);
   if (totalBudget <= 0) return null;
 
   const periodLabel = periodType === "month" ? "Last month" : "Last week";
   const periodBudget = burn?.periodBudgetHours ?? fallback?.periodBudgetHours ?? 0;
-  const periodActual = burn?.periodActualHours ?? periodHours;
-  const spentToDate = burn?.cumulativeSpentThroughPeriod ?? harvestBudgetSpentToDate(harvestProjects);
+  const hoursActual = burn?.periodActualHours ?? periodHours;
+  const hoursSpent =
+    burn?.cumulativeSpentThroughPeriod ?? harvestBudgetSpentToDate(harvestProjects);
+  const projectRate = averageProjectHourlyRate(harvestProjects);
+  const periodCost = estimateHoursCost(hoursActual, periodEntries, projectRate);
+  const harvestSpent = harvestBudgetSpentToDate(harvestProjects);
+
+  let periodActual = hoursActual;
+  let periodActualUnit: BudgetUnit = "hours";
+  let spentToDate = hoursSpent;
+  let spentToDateUnit: BudgetUnit = "hours";
+
+  if (unit === "cost") {
+    if (periodCost != null) {
+      periodActual = periodCost;
+      periodActualUnit = "cost";
+    }
+    if (harvestSpent > 0) {
+      spentToDate = harvestSpent;
+      spentToDateUnit = "cost";
+    } else {
+      const convertedSpent = estimateHoursCost(hoursSpent, periodEntries, projectRate);
+      if (convertedSpent != null) {
+        spentToDate = convertedSpent;
+        spentToDateUnit = "cost";
+      }
+    }
+  }
 
   const contractStart = burn?.contractStart;
   const contractEnd = burn?.contractEnd;
@@ -130,15 +174,25 @@ export function buildBudgetBurnDisplay(params: {
           )
         : 0;
 
+  const comparablePeriod = periodActualUnit === unit;
+  const comparableContract = spentToDateUnit === unit;
+
   return {
+    unit,
+    periodActualUnit,
+    spentToDateUnit,
     periodLabel,
     periodActual,
     periodBudget,
-    periodVariance: budgetVarianceDisplay(periodActual, periodBudget),
+    periodVariance: comparablePeriod
+      ? budgetVarianceDisplay(periodActual, periodBudget)
+      : { label: "—", emailColor: "#525252" },
     contractDateLabel,
     spentToDate,
     totalBudget,
-    contractVariance: budgetVarianceDisplay(spentToDate, contractTargetToDate),
+    contractVariance: comparableContract
+      ? budgetVarianceDisplay(spentToDate, contractTargetToDate)
+      : { label: "—", emailColor: "#525252" },
     monthlyBudget: burn?.monthlyBudgetHours ?? fallback?.monthlyBudgetHours ?? totalBudget / 12,
     weeklyBudget: burn?.weeklyBudgetHours ?? fallback?.weeklyBudgetHours ?? totalBudget / 52,
   };
@@ -149,6 +203,7 @@ export function generateBudgetBurnEmailHtml(display: BudgetBurnDisplay): string 
   const cardCell = (
     title: string,
     utilized: number,
+    unit: BudgetUnit,
     budgetLine: string,
     variance: BudgetBurnDisplayVariance,
     footer?: string
@@ -156,7 +211,7 @@ export function generateBudgetBurnEmailHtml(display: BudgetBurnDisplay): string 
     <td style="padding:10px 12px;background-color:#ffffff;border:1px solid #e5e5e5;vertical-align:top;font-family:Arial,Helvetica,sans-serif;">
       <p style="margin:0 0 8px 0;font-size:11px;font-weight:bold;color:#737373;text-transform:uppercase;letter-spacing:0.03em;">${title}</p>
       <p style="margin:0 0 6px 0;font-size:14px;line-height:1.4;color:#111111;">
-        <strong>${utilized.toFixed(1)}h</strong> utilized &middot; ${budgetLine}
+        <strong>${formatBudgetAmount(utilized, unit)}</strong> utilized &middot; ${budgetLine}
       </p>
       <p style="margin:0;font-size:12px;line-height:1.4;color:${variance.emailColor};font-weight:bold;">${variance.label}</p>
       ${footer ? `<p style="margin:6px 0 0 0;font-size:12px;line-height:1.4;color:#525252;">${footer}</p>` : ""}
@@ -172,7 +227,8 @@ export function generateBudgetBurnEmailHtml(display: BudgetBurnDisplay): string 
           ${cardCell(
             display.periodLabel,
             display.periodActual,
-            `<strong>${display.periodBudget.toFixed(1)}h</strong> budgeted`,
+            display.periodActualUnit,
+            `<strong>${formatBudgetAmount(display.periodBudget, display.unit)}</strong> budgeted`,
             display.periodVariance
           )}
         </tr>
@@ -181,9 +237,10 @@ export function generateBudgetBurnEmailHtml(display: BudgetBurnDisplay): string 
           ${cardCell(
             display.contractDateLabel,
             display.spentToDate,
-            `<strong>${display.totalBudget.toFixed(1)}h</strong> total budget`,
+            display.spentToDateUnit,
+            `<strong>${formatBudgetAmount(display.totalBudget, display.unit)}</strong> total budget`,
             display.contractVariance,
-            `Expected utilization: ~${display.monthlyBudget.toFixed(1)}h/mo &middot; ~${display.weeklyBudget.toFixed(1)}h/wk`
+            `Expected utilization: ~${formatBudgetAmount(display.monthlyBudget, display.unit)}/mo &middot; ~${formatBudgetAmount(display.weeklyBudget, display.unit)}/wk`
           )}
         </tr>
       </table>
@@ -402,7 +459,12 @@ export function buildBudgetBurnSnapshot(
   /** Last date for actual burn on the chart (default: report period end). Use today for live dashboards. */
   chartAsOfDate?: string
 ): BudgetBurnSnapshot | null {
-  const totalBudgetHours = harvestProjects.reduce((sum, p) => sum + (p.budget ?? 0), 0);
+  const tracking = resolveHarvestBudgetTracking(harvestProjects);
+  const unit: BudgetUnit = tracking === "cost" ? "cost" : "hours";
+  const totalBudgetHours = harvestProjects.reduce(
+    (sum, p) => sum + projectBudgetAmount(p, unit),
+    0
+  );
   if (totalBudgetHours <= 0) return null;
 
   const { start: contractStart, end: contractEnd } = resolveContractBoundsFromHarvest(
@@ -484,12 +546,16 @@ export function buildBudgetBurnSnapshot(
 export function budgetBurnFromHarvestProjects(
   harvestProjects: HarvestProjectBudget[],
   periodType: "week" | "month",
-  periodActualHours: number
+  periodActualHours: number,
+  unit: BudgetUnit = "hours"
 ): Pick<
   BudgetBurnSnapshot,
   "totalBudgetHours" | "weeklyBudgetHours" | "monthlyBudgetHours" | "periodBudgetHours" | "periodActualHours"
 > | null {
-  const totalBudgetHours = harvestProjects.reduce((sum, p) => sum + (p.budget ?? 0), 0);
+  const totalBudgetHours = harvestProjects.reduce(
+    (sum, p) => sum + projectBudgetAmount(p, unit),
+    0
+  );
   if (totalBudgetHours <= 0) return null;
   const weeklyBudgetHours = totalBudgetHours / 52;
   const monthlyBudgetHours = totalBudgetHours / 12;

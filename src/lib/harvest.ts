@@ -2,12 +2,12 @@ const HARVEST_API = "https://api.harvestapp.com/v2";
 
 /** Harvest budgets tracked in hours (not fees). */
 export function isHarvestHourBudget(budgetBy: string | null | undefined): boolean {
-  return budgetBy === "project" || budgetBy === "person";
+  return budgetBy === "project" || budgetBy === "person" || budgetBy === "task";
 }
 
 /** Harvest budgets tracked in currency (fees). */
 export function isHarvestCostBudget(budgetBy: string | null | undefined): boolean {
-  return budgetBy === "project_cost" || budgetBy === "person_cost";
+  return budgetBy === "project_cost" || budgetBy === "person_cost" || budgetBy === "task_fees";
 }
 
 export type HarvestProject = {

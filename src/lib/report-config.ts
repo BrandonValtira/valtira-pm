@@ -43,12 +43,12 @@ export const ALWAYS_ON_SECTIONS = [
   {
     id: "budgetConsumption",
     label: "Budget consumption",
-    description: "Hours used vs budgeted, with variance for the period and contract.",
+    description: "Hours or fees used vs budgeted, with variance for the period and contract.",
   },
   {
     id: "budgetRemaining",
     label: "Budget remaining",
-    description: "Hours still available on the project.",
+    description: "Hours or fees still available on the project.",
   },
 ] as const;
 

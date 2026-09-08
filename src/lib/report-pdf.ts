@@ -2,6 +2,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { BudgetAllocationData } from "@/lib/budget-allocation-report";
 import { segmentDisplayPercent } from "@/lib/budget-allocation-report";
+import { buildBudgetRemainingDisplay, formatBudgetAmount } from "@/lib/budget-unit";
 import { type BudgetBurnSnapshot } from "@/lib/budget-burn-chart";
 import { REPORT_FORMAT_BUDGET_ALLOCATION } from "@/lib/report-formats";
 import { generateReportEmailHtml } from "@/lib/report-email";
@@ -19,6 +20,7 @@ type HarvestProjectSnapshot = {
   client_name?: string | null;
   budget?: number | null;
   cost_budget?: number | null;
+  budget_by?: string | null;
   budget_spent?: number | null;
   budget_remaining?: number | null;
   hourly_rate?: number | null;
@@ -78,10 +80,7 @@ function generateStandardReportPdf(report: ReportForPdf): ArrayBuffer {
   const totalHours = entries.reduce((s, e) => s + e.hours, 0);
   const projectNames = snapshot?.harvestProjectNames ?? [];
   const harvestProjects = snapshot?.harvestProjects ?? [];
-  const totalBudgetHours = harvestProjects.reduce((s, p) => s + (p.budget ?? 0), 0) || null;
-  const totalBudgetSpent = harvestProjects.reduce((s, p) => s + (p.budget_spent ?? 0), 0);
-  const totalBudgetRemaining = harvestProjects.reduce((s, p) => s + (p.budget_remaining ?? 0), 0);
-  const hasBudgetReport = harvestProjects.some((p) => p.budget_spent != null || p.budget_remaining != null);
+  const budgetRemaining = buildBudgetRemainingDisplay(harvestProjects);
   const totalCostBudget = harvestProjects.reduce((s, p) => s + (p.cost_budget ?? 0), 0) || null;
   const avgRate =
     harvestProjects.length > 0
@@ -115,27 +114,35 @@ function generateStandardReportPdf(report: ReportForPdf): ArrayBuffer {
   doc.text("Budget", margin, y);
   y += 14;
   doc.setFontSize(10);
-  if (totalBudgetHours != null) {
-    if (hasBudgetReport) {
-      doc.text(`Hours: ${totalBudgetSpent.toFixed(1)} consumed, ${totalBudgetRemaining.toFixed(1)} left in budget`, margin, y);
+  if (budgetRemaining.total != null) {
+    if (budgetRemaining.hasHarvestBudgetReport && budgetRemaining.remaining != null) {
+      doc.text(
+        `Budget: ${formatBudgetAmount(budgetRemaining.spent, budgetRemaining.unit)} consumed, ${formatBudgetAmount(budgetRemaining.remaining, budgetRemaining.unit)} remaining`,
+        margin,
+        y
+      );
       y += 14;
-      doc.text(`Total budget: ${totalBudgetHours.toFixed(1)} hours`, margin, y);
+      doc.text(`Total budget: ${formatBudgetAmount(budgetRemaining.total, budgetRemaining.unit)}`, margin, y);
       y += 14;
     } else {
-      const hoursLeft = Math.max(0, totalBudgetHours - totalHours);
-      doc.text(`Hours: ${hoursLeft.toFixed(1)} left out of ${totalBudgetHours.toFixed(1)} total`, margin, y);
+      const left = Math.max(0, budgetRemaining.total - totalHours);
+      doc.text(
+        `Budget: ${formatBudgetAmount(left, budgetRemaining.unit)} left out of ${formatBudgetAmount(budgetRemaining.total, budgetRemaining.unit)} total`,
+        margin,
+        y
+      );
       y += 14;
     }
     doc.text(`Hours this period: ${totalHours.toFixed(1)}`, margin, y);
     y += 14;
   }
-  if (totalCostBudget != null && totalCostBudget > 0) {
+  if (totalCostBudget != null && totalCostBudget > 0 && budgetRemaining.unit !== "cost") {
     doc.text(`Funds: $${totalCostBudget.toLocaleString()} total budget`, margin, y);
     y += 14;
     doc.text(`Spent this period: $${spentFundsEstimate.toFixed(2)} (est.)`, margin, y);
     y += 14;
   }
-  if (!totalBudgetHours && !totalCostBudget) {
+  if (!budgetRemaining.total && !totalCostBudget) {
     doc.text("No budget set in Harvest for this project.", margin, y);
     y += 14;
   }

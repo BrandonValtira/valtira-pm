@@ -1,6 +1,6 @@
 import { getGoogleAccessToken } from "@/lib/google-auth";
 import { getHarvestAccess } from "@/lib/harvest-auth";
-import { getHarvestProjectBudgetReport } from "@/lib/harvest";
+import { getHarvestProjectBudgetReport, isHarvestCostBudget } from "@/lib/harvest";
 import { getJiraAccess } from "@/lib/jira-auth";
 import { getJiraDoneLastMonthOAuth, getJiraRecentIssuesOAuth } from "@/lib/jira";
 import { extractPdfText } from "@/lib/pdf-text";
@@ -161,7 +161,7 @@ export async function buildProjectContext(
         harvestSection = projectBudgets
           .map(
             (r) =>
-              `${r.project_name}: budget ${r.budget} hours, spent ${r.budget_spent.toFixed(1)}, remaining ${r.budget_remaining.toFixed(1)}`
+              `${r.project_name}: budget ${r.budget} ${isHarvestCostBudget(r.budget_by) ? "USD" : "hours"}, spent ${r.budget_spent.toFixed(1)}, remaining ${r.budget_remaining.toFixed(1)}`
           )
           .join("\n");
       }
@@ -354,7 +354,7 @@ async function appendJiraAndHarvestSections(
         harvestSection = projectBudgets
           .map(
             (r) =>
-              `${r.project_name}: budget ${r.budget} hours, spent ${r.budget_spent.toFixed(1)}, remaining ${r.budget_remaining.toFixed(1)}`
+              `${r.project_name}: budget ${r.budget} ${isHarvestCostBudget(r.budget_by) ? "USD" : "hours"}, spent ${r.budget_spent.toFixed(1)}, remaining ${r.budget_remaining.toFixed(1)}`
           )
           .join("\n");
       }

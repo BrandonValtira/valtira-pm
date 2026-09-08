@@ -8,6 +8,10 @@ import { ValtiraLogo } from "@/components/valtira-logo";
 import type { BudgetAllocationData } from "@/lib/budget-allocation-report";
 import { segmentDisplayPercent, segmentKey } from "@/lib/budget-allocation-report";
 import {
+  buildBudgetRemainingDisplay,
+  formatBudgetAmount,
+} from "@/lib/budget-unit";
+import {
   buildBudgetBurnDisplay,
   type BudgetBurnSnapshot,
 } from "@/lib/budget-burn-chart";
@@ -45,9 +49,9 @@ type HarvestProjectSnapshot = {
   cost_budget: number | null;
   hourly_rate: number | null;
   budget_by?: string | null;
-  /** From Harvest Project Budget Report: total hours consumed (all-time) */
+  /** From Harvest Project Budget Report: hours or fees consumed (all-time) */
   budget_spent?: number | null;
-  /** From Harvest Project Budget Report: hours left in budget */
+  /** From Harvest Project Budget Report: hours or fees left in budget */
   budget_remaining?: number | null;
 };
 
@@ -221,12 +225,13 @@ function BudgetBurnOverview({
     periodType: report.period_type === "month" ? "month" : "week",
     periodEnd: report.period_end,
     periodHours,
+    periodEntries: snapshot.timeEntries ?? [],
   });
 
   if (!display) {
     return (
       <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-600">
-        No hour budget set in Harvest for this project. Add a budget in Harvest to see utilization tracking.
+        No budget set in Harvest for this project. Add a budget in Harvest to see utilization tracking.
       </div>
     );
   }
@@ -240,8 +245,8 @@ function BudgetBurnOverview({
             {display.periodLabel}
           </p>
           <p className="mt-1 text-sm text-neutral-900">
-            <span className="font-bold">{display.periodActual.toFixed(1)}h</span> utilized ·{" "}
-            <span className="font-medium">{display.periodBudget.toFixed(1)}h</span> budgeted
+            <span className="font-bold">{formatBudgetAmount(display.periodActual, display.periodActualUnit)}</span> utilized ·{" "}
+            <span className="font-medium">{formatBudgetAmount(display.periodBudget, display.unit)}</span> budgeted
           </p>
           <p className={`mt-0.5 text-xs ${varianceClassName(display.periodVariance)}`}>
             {display.periodVariance.label}
@@ -252,14 +257,14 @@ function BudgetBurnOverview({
             {display.contractDateLabel}
           </p>
           <p className="mt-1 text-sm text-neutral-900">
-            <span className="font-bold">{display.spentToDate.toFixed(1)}h</span> utilized ·{" "}
-            <span className="font-medium">{display.totalBudget.toFixed(1)}h</span> total budget
+            <span className="font-bold">{formatBudgetAmount(display.spentToDate, display.spentToDateUnit)}</span> utilized ·{" "}
+            <span className="font-medium">{formatBudgetAmount(display.totalBudget, display.unit)}</span> total budget
           </p>
           <p className={`mt-0.5 text-xs ${varianceClassName(display.contractVariance)}`}>
             {display.contractVariance.label}
           </p>
           <p className="mt-0.5 text-xs text-neutral-600">
-            Expected utilization: ~{display.monthlyBudget.toFixed(1)}h/mo · ~{display.weeklyBudget.toFixed(1)}h/wk
+            Expected utilization: ~{formatBudgetAmount(display.monthlyBudget, display.unit)}/mo · ~{formatBudgetAmount(display.weeklyBudget, display.unit)}/wk
           </p>
         </div>
       </div>
@@ -280,11 +285,8 @@ function ReportContent({ report }: { report: Report }) {
   const totalHours = allocation?.totalHours ?? entries.reduce((s, e) => s + e.hours, 0);
   const projectNames = snapshot?.harvestProjectNames ?? [];
   const harvestProjects = snapshot?.harvestProjects ?? [];
-  const totalBudgetHours = harvestProjects.reduce((s, p) => s + (p.budget ?? 0), 0) || null;
+  const budgetRemaining = buildBudgetRemainingDisplay(harvestProjects);
   const totalCostBudget = harvestProjects.reduce((s, p) => s + (p.cost_budget ?? 0), 0) || null;
-  const totalBudgetSpent = harvestProjects.reduce((s, p) => s + (p.budget_spent ?? 0), 0);
-  const totalBudgetRemaining = harvestProjects.reduce((s, p) => s + (p.budget_remaining ?? 0), 0);
-  const hasHarvestBudgetReport = harvestProjects.some((p) => p.budget_spent != null || p.budget_remaining != null);
   const avgRate =
     harvestProjects.length > 0
       ? harvestProjects.reduce((s, p) => s + (p.hourly_rate ?? 0), 0) / harvestProjects.length
@@ -319,14 +321,16 @@ function ReportContent({ report }: { report: Report }) {
       <div className="mt-3 rounded-lg border border-[#E8E2DA] bg-white p-3">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Budget remaining</h4>
         <p className="mt-2 text-sm text-neutral-900">
-          {hasHarvestBudgetReport || totalBudgetHours != null
-            ? `${(hasHarvestBudgetReport ? totalBudgetRemaining : Math.max(0, (totalBudgetHours ?? 0) - totalBudgetSpent)).toFixed(1)}h remaining`
-            : "No hour budget is set in Harvest."}
+          {budgetRemaining.remaining != null && budgetRemaining.total != null
+            ? `${formatBudgetAmount(budgetRemaining.remaining, budgetRemaining.unit)} remaining`
+            : "No budget is set in Harvest."}
         </p>
-        {totalBudgetHours != null && (
+        {budgetRemaining.total != null && (
           <p className="mt-1 text-xs text-neutral-500">
-            of {totalBudgetHours.toFixed(1)}h total
-            {hasHarvestBudgetReport ? ` · ${totalBudgetSpent.toFixed(1)}h used to date` : ""}
+            of {formatBudgetAmount(budgetRemaining.total, budgetRemaining.unit)} total
+            {budgetRemaining.hasHarvestBudgetReport
+              ? ` · ${formatBudgetAmount(budgetRemaining.spent, budgetRemaining.unit)} used to date`
+              : ""}
           </p>
         )}
       </div>

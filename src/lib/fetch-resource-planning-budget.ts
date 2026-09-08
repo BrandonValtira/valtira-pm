@@ -6,17 +6,19 @@ import {
   type BudgetBurnSnapshot,
 } from "@/lib/budget-burn-chart";
 import {
+  resolveHarvestBudgetTracking,
+  type BudgetTracking,
+} from "@/lib/budget-unit";
+import {
   getHarvestProjectBudgetReport,
   getHarvestProjects,
   getHarvestTimeEntries,
-  isHarvestCostBudget,
-  isHarvestHourBudget,
   type HarvestProject,
   type HarvestProjectBudgetResult,
 } from "@/lib/harvest";
 import { getHarvestWeekBounds } from "@/lib/report-week";
 
-export type BudgetTracking = "hours" | "cost" | "none";
+export type { BudgetTracking };
 
 export type ResourcePlanningBudgetSummary = {
   totalBudgetHours: number;
@@ -42,21 +44,11 @@ type HarvestProjectBudgetRow = {
   ends_on: string | null;
 };
 
-function resolveBudgetTracking(
-  harvestProjects: Pick<HarvestProjectBudgetRow, "budget" | "budget_by">[]
-): BudgetTracking {
-  const withBudget = harvestProjects.filter((p) => (p.budget ?? 0) > 0);
-  if (withBudget.length === 0) return "none";
-  if (withBudget.some((p) => isHarvestCostBudget(p.budget_by))) return "cost";
-  if (withBudget.every((p) => isHarvestHourBudget(p.budget_by))) return "hours";
-  return "none";
-}
-
 function hourBudgetSummary(
   harvestProjects: HarvestProjectBudgetRow[],
   spentToDate: number
 ): ResourcePlanningBudgetSummary {
-  const budgetTracking = resolveBudgetTracking(harvestProjects);
+  const budgetTracking = resolveHarvestBudgetTracking(harvestProjects);
   if (budgetTracking !== "hours") {
     return { ...EMPTY_BUDGET_SUMMARY, budgetTracking, spentToDate };
   }
@@ -137,7 +129,7 @@ export async function fetchResourcePlanningBudgetDetail(
     return { summary: EMPTY_BUDGET_SUMMARY, budgetBurn: null };
   }
 
-  const budgetTracking = resolveBudgetTracking(harvestProjects);
+  const budgetTracking = resolveHarvestBudgetTracking(harvestProjects);
   if (budgetTracking !== "hours") {
     return {
       summary: {
@@ -257,7 +249,7 @@ export async function fetchBudgetSummariesForProjects(
           result[input.projectName] = EMPTY_BUDGET_SUMMARY;
           return;
         }
-        const budgetTracking = resolveBudgetTracking(harvestProjects);
+        const budgetTracking = resolveHarvestBudgetTracking(harvestProjects);
         if (budgetTracking !== "hours") {
           result[input.projectName] = {
             ...EMPTY_BUDGET_SUMMARY,

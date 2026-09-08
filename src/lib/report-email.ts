@@ -1,6 +1,10 @@
 import type { BudgetAllocationData } from "@/lib/budget-allocation-report";
 import { segmentDisplayPercent } from "@/lib/budget-allocation-report";
 import {
+  buildBudgetRemainingDisplay,
+  formatBudgetAmount,
+} from "@/lib/budget-unit";
+import {
   buildBudgetBurnDisplay,
   type BudgetBurnSnapshot,
 } from "@/lib/budget-burn-chart";
@@ -17,6 +21,7 @@ type HarvestProjectSnapshot = {
   client_name?: string | null;
   budget?: number | null;
   cost_budget?: number | null;
+  budget_by?: string | null;
   budget_spent?: number | null;
   budget_remaining?: number | null;
   hourly_rate?: number | null;
@@ -24,6 +29,8 @@ type HarvestProjectSnapshot = {
 
 type TimeEntry = {
   hours: number;
+  billable_rate?: number | null;
+  hourly_rate?: number | null;
 };
 
 export type ReportForEmail = {
@@ -90,10 +97,7 @@ export function generateReportEmailHtml(
   const reportKind = budgetReportLabel(report.period_type);
   const dateRange = formatReportDateRange(report.period_start, report.period_end);
 
-  const totalBudgetHours = harvestProjects.reduce((s, p) => s + (p.budget ?? 0), 0) || null;
-  const totalBudgetSpent = harvestProjects.reduce((s, p) => s + (p.budget_spent ?? 0), 0);
-  const totalBudgetRemaining = harvestProjects.reduce((s, p) => s + (p.budget_remaining ?? 0), 0);
-  const hasBudgetReport = harvestProjects.some((p) => p.budget_spent != null || p.budget_remaining != null);
+  const budgetRemaining = buildBudgetRemainingDisplay(harvestProjects);
   const totalCostBudget = harvestProjects.reduce((s, p) => s + (p.cost_budget ?? 0), 0) || null;
   const avgRate =
     harvestProjects.length > 0
@@ -106,30 +110,28 @@ export function generateReportEmailHtml(
     budgetBurn: snapshot?.budgetBurn,
     harvestProjects: harvestProjects.map((p) => ({
       budget: p.budget ?? null,
+      cost_budget: p.cost_budget,
+      budget_by: p.budget_by,
       budget_spent: p.budget_spent,
+      hourly_rate: p.hourly_rate,
     })),
     harvestProjectNames: projectNames,
     periodType: burnPeriodType,
     periodEnd: report.period_end,
     periodHours: snapshot?.budgetAllocation?.totalHours ?? totalHours,
+    periodEntries: entries,
   });
 
-  const remainingHours = hasBudgetReport
-    ? totalBudgetRemaining
-    : totalBudgetHours != null
-      ? Math.max(0, totalBudgetHours - totalBudgetSpent)
-      : null;
-
   const consumptionBody = burnDisplay
-    ? `<p style="margin:0 0 4px 0;"><strong>${burnDisplay.periodActual.toFixed(1)}h</strong> used · <strong>${burnDisplay.periodBudget.toFixed(1)}h</strong> budgeted</p>
+    ? `<p style="margin:0 0 4px 0;"><strong>${formatBudgetAmount(burnDisplay.periodActual, burnDisplay.periodActualUnit)}</strong> used · <strong>${formatBudgetAmount(burnDisplay.periodBudget, burnDisplay.unit)}</strong> budgeted</p>
        <p style="margin:0;color:${burnDisplay.periodVariance.emailColor};font-weight:700;">${escapeHtml(burnDisplay.periodVariance.label)}</p>`
     : `<p style="margin:0;">${totalHours.toFixed(1)} hours logged this period.</p>`;
 
   const remainingBody =
-    remainingHours != null && totalBudgetHours != null
-      ? `<p style="margin:0 0 4px 0;"><strong>${remainingHours.toFixed(1)}h</strong> remaining</p>
-         <p style="margin:0;color:#6B645C;">of ${totalBudgetHours.toFixed(1)}h total${hasBudgetReport ? ` · ${totalBudgetSpent.toFixed(1)}h used to date` : ""}</p>`
-      : `<p style="margin:0;color:#6B645C;">No hour budget is set in Harvest.</p>`;
+    budgetRemaining.remaining != null && budgetRemaining.total != null
+      ? `<p style="margin:0 0 4px 0;"><strong>${formatBudgetAmount(budgetRemaining.remaining, budgetRemaining.unit)}</strong> remaining</p>
+         <p style="margin:0;color:#6B645C;">of ${formatBudgetAmount(budgetRemaining.total, budgetRemaining.unit)} total${budgetRemaining.hasHarvestBudgetReport ? ` · ${formatBudgetAmount(budgetRemaining.spent, budgetRemaining.unit)} used to date` : ""}</p>`
+      : `<p style="margin:0;color:#6B645C;">No budget is set in Harvest.</p>`;
 
   const allocation = snapshot?.budgetAllocation;
   const segments = allocation?.segments ?? [];

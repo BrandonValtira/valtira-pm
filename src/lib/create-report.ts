@@ -6,7 +6,7 @@ import {
   type BudgetAllocationTimeEntry,
 } from "@/lib/budget-allocation-report";
 import { buildBudgetBurnSnapshot, resolveContractBoundsFromHarvest, type BudgetBurnSnapshot } from "@/lib/budget-burn-chart";
-import { getHarvestProjects, getHarvestTimeEntries, getHarvestProjectBudgetReport, type HarvestProject, type HarvestProjectBudgetResult, type HarvestTimeEntry } from "@/lib/harvest";
+import { getHarvestProjects, getHarvestTimeEntries, getHarvestProjectBudgetReport, isHarvestCostBudget, type HarvestProject, type HarvestProjectBudgetResult, type HarvestTimeEntry } from "@/lib/harvest";
 import { getHarvestAccess } from "@/lib/harvest-auth";
 import {
   REPORT_FORMAT_BUDGET_ALLOCATION,
@@ -81,14 +81,18 @@ async function buildHarvestSnapshot(
     .filter((p: HarvestProject) => projectSet.has(p.id))
     .map((p: HarvestProject) => {
       const budgetRow = budgetByProjectId.get(p.id);
+      const budgetBy = p.budget_by ?? budgetRow?.budget_by ?? null;
+      const costBudget = isHarvestCostBudget(budgetBy);
       return {
         id: p.id,
         name: p.name,
         client_name: p.client?.name ?? null,
-        budget: p.budget ?? budgetRow?.budget ?? null,
+        budget: costBudget
+          ? (p.cost_budget ?? p.budget ?? budgetRow?.budget ?? null)
+          : (p.budget ?? budgetRow?.budget ?? null),
         cost_budget: p.cost_budget ?? null,
         hourly_rate: p.hourly_rate ?? null,
-        budget_by: p.budget_by ?? null,
+        budget_by: budgetBy,
         budget_spent: budgetRow?.budget_spent ?? null,
         budget_remaining: budgetRow?.budget_remaining ?? null,
         starts_on: p.starts_on ?? null,
