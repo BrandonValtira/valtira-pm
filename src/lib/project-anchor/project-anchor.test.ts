@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { describe, it } from "node:test";
 import { harvestProjectCodeFromField, isHarvestProjectCodeAllowed } from "./config.ts";
-import { shouldIngestWorklog, worklogAlreadySynced } from "./sync-rules.ts";
+import { isJiraApiNotFoundMessage, liveWorklogWriteDecision, shouldIngestWorklog, worklogAlreadySynced } from "./sync-rules.ts";
 import {
   fieldIdFromNames,
   isHarvestProjectFieldName,
@@ -180,6 +180,17 @@ describe("worklog ingest rules", () => {
     assert.equal(shouldIngestWorklog("80169", "2026-01-01", "2026-09-01", new Set(["80169"])), true);
     assert.equal(shouldIngestWorklog("80170", "2026-01-01", "2026-09-01", new Set(["80169"])), false);
     assert.equal(shouldIngestWorklog("80170", "2026-09-08", "2026-09-01", new Set()), true);
+  });
+
+  it("treats a missing or zero-second Jira worklog as a delete, not a write", () => {
+    assert.equal(liveWorklogWriteDecision(null), "delete");
+    assert.equal(liveWorklogWriteDecision({ timeSpentSeconds: 0 }), "delete");
+    assert.equal(liveWorklogWriteDecision({ timeSpentSeconds: 2700 }), "write");
+  });
+
+  it("detects Jira 404s so stale webhooks do not resurrect deleted worklogs", () => {
+    assert.equal(isJiraApiNotFoundMessage("Jira API 404: Worklog not found"), true);
+    assert.equal(isJiraApiNotFoundMessage("Jira API 500: boom"), false);
   });
 
   it("treats hour, date, or note edits as a change that must sync", () => {

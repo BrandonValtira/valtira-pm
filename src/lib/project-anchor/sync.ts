@@ -8,7 +8,7 @@ import {
   toDuplicateCandidate,
   updateHarvestTimeEntry,
 } from "./harvest";
-import { getJiraIssueForSync, getJiraWorklog, jiraBrowseUrl } from "./jira";
+import { getJiraIssueForSync, getJiraWorklogIfExists, jiraBrowseUrl } from "./jira";
 import { pickDuplicateCandidate } from "./duplicates";
 import {
   getEntryById,
@@ -24,7 +24,7 @@ import { SyncError } from "./types";
 import { resolveUserMap } from "./users";
 import type { ParsedWorklogEvent } from "./types";
 import { hoursFromSeconds, spentDateFromStarted } from "./webhook";
-import { worklogAlreadySynced } from "./sync-rules";
+import { liveWorklogWriteDecision, worklogAlreadySynced } from "./sync-rules";
 
 function notesWithIssue(commentText: string, issueKey: string): string {
   const trimmed = commentText.trim();
@@ -60,18 +60,29 @@ async function markFailed(entry: ProjectAnchorEntry, error: unknown, incrementRe
   });
 }
 
+async function applyHarvestDelete(entry: ProjectAnchorEntry): Promise<ProjectAnchorEntry> {
+  if (entry.harvest_time_entry_id) {
+    await deleteHarvestTimeEntry(entry.harvest_time_entry_id);
+  }
+  await touchSyncState({ last_successful_harvest_at: new Date().toISOString(), last_harvest_error: null });
+  return updateEntry(entry.id, {
+    action: "deleted",
+    sync_status: "deleted",
+    last_synced_at: new Date().toISOString(),
+    last_error: null,
+    last_retry_at: new Date().toISOString(),
+  });
+}
+
 async function applyHarvestWrite(entry: ProjectAnchorEntry): Promise<ProjectAnchorEntry> {
-  if (entry.action === "deleted") {
-    if (entry.harvest_time_entry_id) {
-      await deleteHarvestTimeEntry(entry.harvest_time_entry_id);
+  if (entry.action !== "deleted") {
+    const live = await getJiraWorklogIfExists(entry.jira_issue_key, entry.jira_worklog_id);
+    if (liveWorklogWriteDecision(live) === "delete") {
+      return applyHarvestDelete(entry);
     }
-    await touchSyncState({ last_successful_harvest_at: new Date().toISOString(), last_harvest_error: null });
-    return updateEntry(entry.id, {
-      sync_status: "deleted",
-      last_synced_at: new Date().toISOString(),
-      last_error: null,
-      last_retry_at: new Date().toISOString(),
-    });
+  }
+  if (entry.action === "deleted") {
+    return applyHarvestDelete(entry);
   }
 
   const code = entry.harvest_project_code;
@@ -240,22 +251,38 @@ export async function syncEntryById(id: string, incrementRetry = false): Promise
   }
 }
 
-export async function handleWorklogEvent(event: ParsedWorklogEvent): Promise<{
+async function finalizeDeletedWorklog(worklogId: string): Promise<{
   ignored: boolean;
   entry: ProjectAnchorEntry | null;
 }> {
-  await touchSyncState({ last_webhook_at: new Date().toISOString() });
+  const existing = await getEntryByWorklogId(worklogId);
+  if (!existing) return { ignored: true, entry: null };
+  if (existing.sync_status === "deleted" && existing.action === "deleted") {
+    return { ignored: true, entry: existing };
+  }
+  const pendingDelete = await updateEntry(existing.id, {
+    action: "deleted",
+    sync_status: "pending",
+    last_error: null,
+  });
+  const result = await syncEntryById(pendingDelete.id);
+  return { ignored: false, entry: result };
+}
+
+export async function handleWorklogEvent(
+  event: ParsedWorklogEvent,
+  options?: { source?: "webhook" | "poll" }
+): Promise<{
+  ignored: boolean;
+  entry: ProjectAnchorEntry | null;
+}> {
+  const source = options?.source ?? "webhook";
+  if (source === "webhook") {
+    await touchSyncState({ last_webhook_at: new Date().toISOString() });
+  }
 
   if (event.webhookEvent === "worklog_deleted") {
-    const existing = await getEntryByWorklogId(event.worklogId);
-    if (!existing) return { ignored: true, entry: null };
-    const pendingDelete = await updateEntry(existing.id, {
-      action: "deleted",
-      sync_status: "pending",
-      last_error: null,
-    });
-    const result = await syncEntryById(pendingDelete.id);
-    return { ignored: false, entry: result };
+    return finalizeDeletedWorklog(event.worklogId);
   }
 
   const issueId = event.issueId;
@@ -283,12 +310,21 @@ export async function handleWorklogEvent(event: ParsedWorklogEvent): Promise<{
   let started = event.started;
   let commentText = event.commentText;
 
-  if (accountId == null || timeSpentSeconds == null || !started) {
-    const full = await getJiraWorklog(issue.key, event.worklogId);
-    accountId = accountId ?? full.accountId;
-    timeSpentSeconds = timeSpentSeconds ?? full.timeSpentSeconds;
-    started = started ?? full.started;
-    commentText = commentText || full.commentText;
+  // Webhooks (and Jira retries) can arrive after the worklog was deleted. Always
+  // confirm it still exists before resurrecting a deleted row or writing Harvest.
+  if (source !== "poll" || accountId == null || timeSpentSeconds == null || !started) {
+    const full = await getJiraWorklogIfExists(issue.key, event.worklogId);
+    if (!full || liveWorklogWriteDecision(full) === "delete") {
+      return finalizeDeletedWorklog(event.worklogId);
+    }
+    accountId = full.accountId;
+    timeSpentSeconds = full.timeSpentSeconds;
+    started = full.started;
+    commentText = full.commentText || commentText;
+  }
+
+  if (liveWorklogWriteDecision({ timeSpentSeconds: timeSpentSeconds ?? 0 }) === "delete") {
+    return finalizeDeletedWorklog(event.worklogId);
   }
 
   if (!accountId) {

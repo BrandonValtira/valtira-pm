@@ -1,4 +1,5 @@
 import { harvestProjectCodeFromField, isHarvestProjectCodeAllowed } from "./config";
+import { isJiraApiNotFoundMessage } from "./sync-rules";
 import { resolveOrgJiraAccess, type JiraOAuthAccess } from "@/lib/jira-auth";
 import {
   HARVEST_PROJECT_FIELD_LABEL,
@@ -317,6 +318,10 @@ function mapWorklog(
   };
 }
 
+export function isJiraNotFoundError(error: unknown): boolean {
+  return error instanceof SyncError && isJiraApiNotFoundMessage(error.message);
+}
+
 export async function getJiraWorklog(issueIdOrKey: string, worklogId: string): Promise<JiraWorklogForSync> {
   const worklog = await jiraFetch<{
     id: string;
@@ -327,6 +332,18 @@ export async function getJiraWorklog(issueIdOrKey: string, worklogId: string): P
     author?: { accountId?: string };
   }>(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/worklog/${encodeURIComponent(worklogId)}`);
   return mapWorklog(worklog, issueIdOrKey);
+}
+
+export async function getJiraWorklogIfExists(
+  issueIdOrKey: string,
+  worklogId: string
+): Promise<JiraWorklogForSync | null> {
+  try {
+    return await getJiraWorklog(issueIdOrKey, worklogId);
+  } catch (error) {
+    if (isJiraNotFoundError(error)) return null;
+    throw error;
+  }
 }
 
 export async function listIssueWorklogs(issueIdOrKey: string): Promise<JiraWorklogList> {

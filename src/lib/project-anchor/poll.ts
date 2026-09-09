@@ -47,18 +47,21 @@ export async function pollManagedJiraWorklogs(): Promise<{ pulled: number; ignor
       const seen = new Set<string>();
       if (canWrite) {
         for (const worklog of worklogs) {
+          seen.add(worklog.id);
           const spentDate = spentDateFromStarted(worklog.started);
           if (!shouldIngestWorklog(worklog.id, spentDate, lookback, trackedIds)) continue;
-          seen.add(worklog.id);
-          const result = await handleWorklogEvent({
-            webhookEvent: trackedIds.has(worklog.id) ? "worklog_updated" : "worklog_created",
-            worklogId: worklog.id,
-            issueId: worklog.issueId || issue.id,
-            accountId: worklog.accountId,
-            timeSpentSeconds: worklog.timeSpentSeconds,
-            started: worklog.started,
-            commentText: worklog.commentText,
-          });
+          const result = await handleWorklogEvent(
+            {
+              webhookEvent: trackedIds.has(worklog.id) ? "worklog_updated" : "worklog_created",
+              worklogId: worklog.id,
+              issueId: worklog.issueId || issue.id,
+              accountId: worklog.accountId,
+              timeSpentSeconds: worklog.timeSpentSeconds,
+              started: worklog.started,
+              commentText: worklog.commentText,
+            },
+            { source: "poll" }
+          );
           if (result.ignored) ignored += 1;
           else pulled += 1;
         }
@@ -67,15 +70,18 @@ export async function pollManagedJiraWorklogs(): Promise<{ pulled: number; ignor
       for (const entry of existing) {
         if (entry.sync_status === "deleted") continue;
         if (canWrite && seen.has(entry.jira_worklog_id)) continue;
-        await handleWorklogEvent({
-          webhookEvent: "worklog_deleted",
-          worklogId: entry.jira_worklog_id,
-          issueId: entry.jira_issue_id,
-          accountId: entry.jira_account_id,
-          timeSpentSeconds: null,
-          started: null,
-          commentText: "",
-        });
+        await handleWorklogEvent(
+          {
+            webhookEvent: "worklog_deleted",
+            worklogId: entry.jira_worklog_id,
+            issueId: entry.jira_issue_id,
+            accountId: entry.jira_account_id,
+            timeSpentSeconds: null,
+            started: null,
+            commentText: "",
+          },
+          { source: "poll" }
+        );
       }
       if (!issue.harvestProjectCode || !isHarvestProjectCodeAllowed(issue.harvestProjectCode)) continue;
       const project = await findHarvestProjectByCode(issue.harvestProjectCode);
