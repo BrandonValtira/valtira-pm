@@ -67,6 +67,8 @@ Reports + PDF send (Resend) are done. Next for Release 1: approval flow, invite 
 
 See **[ROADMAP.md](./ROADMAP.md)** for Release 1 (core: approval flow, invite PMs, automations → GitHub → Vercel → OAuth URLs) and Release 2 (contextual documents, mood, summaries, chat).
 
+**Project Anchor (Time Entry):** Jira worklog → Harvest sync. See **[docs/project-anchor.md](./docs/project-anchor.md)**.
+
 ## Launch checklist (Vercel + pm.valtira.net)
 
 **→ Full list of Vercel env vars:** **[docs/vercel-environment-variables.md](./docs/vercel-environment-variables.md)**

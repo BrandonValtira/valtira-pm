@@ -45,9 +45,24 @@ Ensure the OAuth client has **Gmail send** scope if you use report emails from G
 
 | Variable | Description |
 |----------|-------------|
-| `CRON_SECRET` | Secret token for the cron endpoint. Generate: `openssl rand -base64 32`. In Vercel Cron, set the job to send `Authorization: Bearer YOUR_CRON_SECRET`. |
+| `CRON_SECRET` | Secret token for cron endpoints. Generate: `openssl rand -base64 32`. Used by `/api/cron/run-automations` and `/api/cron/project-anchor-reconcile`. |
 
-Without this, `/api/cron/run-automations` will return 401. With it, Vercel Cron can call that route on schedule (e.g. hourly).
+Without this, cron routes return 401 unless Vercel sets `x-vercel-cron: 1`.
+
+---
+
+## Project Anchor (Jira → Harvest time sync)
+
+Uses **Jira and Harvest OAuth in Settings**. Optional:
+
+| Variable | Description |
+|----------|-------------|
+| `JIRA_HARVEST_PROJECT_FIELD_ID` | Override if the field is not named Harvest Billing Project |
+| `JIRA_HARVEST_TASK_FIELD_ID` | Optional Harvest Billing Task field id |
+| `JIRA_WEBHOOK_SECRET` | Optional; otherwise `CRON_SECRET` / `AUTH_SECRET` |
+| `HARVEST_ALLOWED_PROJECT_CODES` | Codes Project Anchor may write; default `VL906` |
+
+Full setup: [docs/project-anchor.md](./project-anchor.md).
 
 ---
 

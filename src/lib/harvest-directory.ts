@@ -57,7 +57,8 @@ export async function resolveHarvestAccessForDirectory(
   const superAdminId = await resolveCanonicalSuperAdminUserId(supabase);
   const ordered: string[] = [];
   if (superAdminId) ordered.push(superAdminId);
-  if (!ordered.includes(sessionUserId)) ordered.push(sessionUserId);
+  const sessionId = sessionUserId?.trim();
+  if (sessionId && !ordered.includes(sessionId)) ordered.push(sessionId);
 
   for (const uid of ordered) {
     const row = await fetchHarvestIntegration(supabase, uid);
@@ -73,4 +74,9 @@ export async function resolveHarvestAccessForDirectory(
     return { accountId, accessToken };
   }
   return null;
+}
+
+/** Org Harvest connection used by cron/webhooks: super admin only. */
+export async function resolveOrgHarvestAccess(): Promise<{ accountId: string; accessToken: string } | null> {
+  return resolveHarvestAccessForDirectory("");
 }

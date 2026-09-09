@@ -2,6 +2,9 @@
   "name": "valtira-pm",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "next dev -p 3000",
     "dev:clean": "rm -rf .next && lsof -ti :3000 | xargs kill -9 2>/dev/null; next dev -p 3000",
@@ -10,6 +13,7 @@
     "build": "npm run generate-icons && next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "node --experimental-strip-types --test src/lib/project-anchor/project-anchor.test.ts",
     "deploy": "npx vercel --prod --yes",
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",

@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/resource-planning", label: "Resources", icon: ResourcesIcon },
   { href: "/dashboard/projects", label: "Projects", icon: ProjectsIcon },
   { href: "/dashboard/team", label: "Team", icon: TeamIcon, superAdminOnly: true },
+  { href: "/dashboard/time-entry", label: "Time Entry", icon: TimeEntryIcon },
 ];
 
 function MenuIcon({ className }: { className?: string }) {
@@ -29,6 +30,14 @@ function GridIcon({ className }: { className?: string }) {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6z" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+    </svg>
+  );
+}
+
+function TimeEntryIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   );
 }
