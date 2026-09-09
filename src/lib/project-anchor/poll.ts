@@ -83,13 +83,13 @@ export async function pollManagedJiraWorklogs(): Promise<{ pulled: number; ignor
           .filter((entry) => entry.sync_status !== "deleted" && entry.harvest_time_entry_id)
           .map((entry) => entry.harvest_time_entry_id as number)
       );
-      const userIds = [
-        ...new Set(
+      const userIds = Array.from(
+        new Set(
           issueEntries
             .map((entry) => entry.harvest_user_id)
             .filter((id): id is number => typeof id === "number" && Number.isFinite(id))
-        ),
-      ];
+        )
+      );
       await deleteUnmappedHarvestEntriesForIssue({
         issueKey: issue.key,
         projectId: project.id,
