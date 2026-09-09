@@ -59,16 +59,30 @@ export type EntryUpsert = {
 
 export async function upsertEntryByWorklog(fields: EntryUpsert): Promise<ProjectAnchorEntry> {
   const supabase = createAdminClient();
+  const worklogId = String(fields.jira_worklog_id);
   const { data: existing, error: existingError } = await supabase
     .from("project_anchor_entries")
     .select("*")
-    .eq("jira_worklog_id", fields.jira_worklog_id)
+    .eq("jira_worklog_id", worklogId)
     .maybeSingle();
   if (existingError) throw new Error(existingError.message);
 
-  const payload = {
+  const resurrect = existing?.sync_status === "deleted";
+  const payload: Record<string, unknown> = {
     ...fields,
+    jira_worklog_id: worklogId,
+    jira_issue_id: String(fields.jira_issue_id),
+    jira_account_id: String(fields.jira_account_id),
     updated_at: new Date().toISOString(),
+    ...(resurrect
+      ? {
+          harvest_time_entry_id: null,
+          harvest_link_source: null,
+          duplicate_harvest_time_entry_id: null,
+          retry_count: 0,
+          last_error: null,
+        }
+      : {}),
   };
 
   if (existing) {
@@ -83,6 +97,16 @@ export async function upsertEntryByWorklog(fields: EntryUpsert): Promise<Project
   }
 
   const { data, error } = await supabase.from("project_anchor_entries").insert(payload).select("*").single();
+  if (error && /duplicate key|unique constraint/i.test(error.message)) {
+    const { data: raced, error: racedError } = await supabase
+      .from("project_anchor_entries")
+      .update(payload)
+      .eq("jira_worklog_id", worklogId)
+      .select("*")
+      .single();
+    if (racedError) throw new Error(racedError.message);
+    return mapEntryRow(raced as Record<string, unknown>);
+  }
   if (error) throw new Error(error.message);
   return mapEntryRow(data as Record<string, unknown>);
 }

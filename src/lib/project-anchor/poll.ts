@@ -44,7 +44,7 @@ export async function pollManagedJiraWorklogs(): Promise<{ pulled: number; ignor
         if (result.ignored) ignored += 1;
         else pulled += 1;
       }
-      if (!listedAll) continue;
+      if (!listedAll || worklogs.length === 0) continue;
       const existing = await listEntries({ issueKey: issue.key, limit: 200 });
       for (const entry of existing) {
         if (entry.sync_status === "deleted") continue;

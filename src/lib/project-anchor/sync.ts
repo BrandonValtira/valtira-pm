@@ -306,7 +306,7 @@ export async function handleWorklogEvent(event: ParsedWorklogEvent): Promise<{
     jira_issue_id: issue.id,
     jira_issue_key: issue.key,
     jira_issue_summary: issue.summary,
-    jira_worklog_id: event.worklogId,
+    jira_worklog_id: String(event.worklogId),
     jira_account_id: accountId,
     hours,
     spent_date: spentDate,
