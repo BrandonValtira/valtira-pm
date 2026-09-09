@@ -30,6 +30,7 @@ export type TimeEntryDashboardData = {
     jira: "ok" | "error" | "unknown";
     harvest: "ok" | "error" | "unknown";
     lastSuccessfulSync: string | null;
+    lastJiraSyncAt: string | null;
     lastWebhookAt: string | null;
     lastReconcileAt: string | null;
     lastJiraError: string | null;
@@ -128,6 +129,7 @@ export async function loadTimeEntryDashboard(sessionUserId?: string | null): Pro
       jira,
       harvest,
       lastSuccessfulSync: syncState?.last_successful_harvest_at ?? null,
+      lastJiraSyncAt: syncState?.last_successful_jira_at ?? syncState?.last_reconcile_at ?? null,
       lastWebhookAt: syncState?.last_webhook_at ?? null,
       lastReconcileAt: syncState?.last_reconcile_at ?? null,
       lastJiraError: syncState?.last_jira_error ?? null,

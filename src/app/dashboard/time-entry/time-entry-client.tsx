@@ -34,14 +34,6 @@ function statusLabel(status: string): string {
   return status;
 }
 
-function actionLabel(action: string, linkSource: string | null): string {
-  if (linkSource === "adopted") return "Linked existing Harvest entry";
-  if (action === "created") return "Created";
-  if (action === "updated") return "Updated";
-  if (action === "deleted") return "Deleted";
-  return action;
-}
-
 function StatusPill({ status }: { status: string }) {
   const cls =
     status === "synced"
@@ -66,11 +58,31 @@ function userLabel(entry: ProjectAnchorEntry, maps: ProjectAnchorUserMap[]): str
 export function TimeEntryClient({ initial }: { initial: TimeEntryDashboardData }) {
   const router = useRouter();
   const [data, setData] = useState(initial);
-  const [expanded, setExpanded] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
-
+  const [expandedPerson, setExpandedPerson] = useState<string | null>(null);
   const failedCount = data.status.failed + data.status.duplicate;
+  const teamHours = useMemo(
+    () => data.todayHours.reduce((sum, row) => sum + row.hours, 0),
+    [data.todayHours]
+  );
+  const recentByPerson = useMemo(() => {
+    const groups = new Map<string, { name: string; hours: number; entries: ProjectAnchorEntry[] }>();
+    for (const entry of data.recent) {
+      if (entry.sync_status !== "synced" && entry.sync_status !== "pending" && entry.sync_status !== "duplicate") {
+        continue;
+      }
+      const name = userLabel(entry, data.userMaps);
+      const key = entry.jira_account_id || String(entry.harvest_user_id ?? entry.id);
+      const current = groups.get(key) ?? { name, hours: 0, entries: [] };
+      current.hours += Number(entry.hours);
+      current.entries.push(entry);
+      groups.set(key, current);
+    }
+    return Array.from(groups.entries())
+      .map(([key, group]) => ({ key, ...group }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  }, [data.recent, data.userMaps]);
 
   async function refresh() {
     const res = await fetch("/api/time-entry/status");
@@ -165,8 +177,11 @@ export function TimeEntryClient({ initial }: { initial: TimeEntryDashboardData }
       <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-medium text-neutral-900">Today&apos;s Hours</h2>
-            <p className="mt-1 text-sm text-neutral-600">Central time · {data.today}</p>
+            <h2 className="text-lg font-medium text-neutral-900">Team hours</h2>
+            <p className="mt-2 text-3xl font-semibold tabular-nums text-neutral-900">{formatHours(teamHours)}</p>
+            <p className="mt-2 text-sm text-neutral-600">
+              Last synced from Jira: {formatWhen(data.status.lastJiraSyncAt)}
+            </p>
           </div>
           <button
             type="button"
@@ -177,56 +192,6 @@ export function TimeEntryClient({ initial }: { initial: TimeEntryDashboardData }
             {busy === "pull" ? "Syncing…" : "Sync from Jira"}
           </button>
         </div>
-        {data.todayHours.length === 0 ? (
-          <p className="mt-4 text-sm text-neutral-500">No Project Anchor time logged today.</p>
-        ) : (
-          <ul className="mt-4 divide-y divide-neutral-100">
-            {data.todayHours.map((row) => (
-              <li key={row.jiraAccountId}>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between py-3 text-left"
-                  onClick={() => setExpanded(expanded === row.jiraAccountId ? null : row.jiraAccountId)}
-                >
-                  <span className="font-medium text-neutral-900">{row.displayName}</span>
-                  <span className="tabular-nums text-neutral-700">{formatHours(row.hours)} hrs</span>
-                </button>
-                {expanded === row.jiraAccountId && (
-                  <div className="mb-3 overflow-x-auto rounded-lg border border-neutral-100 bg-neutral-50">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-neutral-500">
-                          <th className="px-3 py-2 font-medium">Issue</th>
-                          <th className="px-3 py-2 font-medium">Hours</th>
-                          <th className="px-3 py-2 font-medium">Harvest</th>
-                          <th className="px-3 py-2 font-medium">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {row.entries.map((entry) => (
-                          <tr key={entry.id} className="border-t border-neutral-100 text-neutral-800">
-                            <td className="px-3 py-2">
-                              {entry.jira_issue_key}
-                              {entry.jira_issue_summary ? ` · ${entry.jira_issue_summary}` : ""}
-                            </td>
-                            <td className="px-3 py-2 tabular-nums">{formatHours(Number(entry.hours))}</td>
-                            <td className="px-3 py-2">
-                              {entry.harvest_project_code || entry.harvest_project_name || "—"}
-                              {entry.harvest_task_name ? ` / ${entry.harvest_task_name}` : ""}
-                            </td>
-                            <td className="px-3 py-2">
-                              <StatusPill status={entry.sync_status} />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
 
       <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
@@ -246,44 +211,59 @@ export function TimeEntryClient({ initial }: { initial: TimeEntryDashboardData }
 
       <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-medium text-neutral-900">Recent Activity</h2>
-        {data.recent.length === 0 ? (
-          <p className="mt-4 text-sm text-neutral-500">No sync activity yet.</p>
+        {recentByPerson.length === 0 ? (
+          <p className="mt-4 text-sm text-neutral-500">No synced time yet.</p>
         ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-neutral-500">
-                  <th className="px-2 py-2 font-medium">Time</th>
-                  <th className="px-2 py-2 font-medium">User</th>
-                  <th className="px-2 py-2 font-medium">Issue</th>
-                  <th className="px-2 py-2 font-medium">Hours</th>
-                  <th className="px-2 py-2 font-medium">Harvest</th>
-                  <th className="px-2 py-2 font-medium">Action</th>
-                  <th className="px-2 py-2 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.recent.map((entry) => (
-                  <tr key={entry.id} className="border-t border-neutral-100 text-neutral-800">
-                    <td className="whitespace-nowrap px-2 py-2">{formatWhen(entry.updated_at)}</td>
-                    <td className="px-2 py-2">{userLabel(entry, data.userMaps)}</td>
-                    <td className="px-2 py-2">
-                      <div>{entry.jira_issue_key}</div>
-                      {entry.jira_issue_summary && (
-                        <div className="max-w-xs truncate text-xs text-neutral-500">{entry.jira_issue_summary}</div>
-                      )}
-                    </td>
-                    <td className="px-2 py-2 tabular-nums">{formatHours(Number(entry.hours))}</td>
-                    <td className="px-2 py-2">{entry.harvest_project_code || entry.harvest_project_name || "—"}</td>
-                    <td className="px-2 py-2">{actionLabel(entry.action, entry.harvest_link_source)}</td>
-                    <td className="px-2 py-2">
-                      <StatusPill status={entry.sync_status} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="mt-4 divide-y divide-neutral-100">
+            {recentByPerson.map((person) => {
+              const open = expandedPerson === person.key;
+              return (
+                <li key={person.key}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between py-3 text-left"
+                    onClick={() => setExpandedPerson(open ? null : person.key)}
+                    aria-expanded={open}
+                  >
+                    <span className="font-medium text-neutral-900">{person.name}</span>
+                    <span className="text-sm text-neutral-500">{open ? "Collapse" : "Expand"}</span>
+                  </button>
+                  {open && (
+                    <div className="mb-3 overflow-x-auto rounded-lg border border-neutral-100 bg-neutral-50">
+                      <table className="min-w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-neutral-500">
+                            <th className="px-3 py-2 font-medium">Issue</th>
+                            <th className="px-3 py-2 font-medium">Hours</th>
+                            <th className="px-3 py-2 font-medium">Harvest</th>
+                            <th className="px-3 py-2 font-medium">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {person.entries.map((entry) => (
+                            <tr key={entry.id} className="border-t border-neutral-100 text-neutral-800">
+                              <td className="px-3 py-2">
+                                {entry.jira_issue_key}
+                                {entry.jira_issue_summary ? ` · ${entry.jira_issue_summary}` : ""}
+                              </td>
+                              <td className="px-3 py-2 tabular-nums">{formatHours(Number(entry.hours))}</td>
+                              <td className="px-3 py-2">
+                                {entry.harvest_project_code || entry.harvest_project_name || "—"}
+                                {entry.harvest_task_name ? ` / ${entry.harvest_task_name}` : ""}
+                              </td>
+                              <td className="px-3 py-2">
+                                <StatusPill status={entry.sync_status} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         )}
       </section>
 
