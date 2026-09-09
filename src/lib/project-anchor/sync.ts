@@ -177,6 +177,10 @@ async function applyHarvestWrite(entry: ProjectAnchorEntry): Promise<ProjectAnch
     timeEntryId = duplicate.id;
     linkSource = "adopted";
     await updateHarvestTimeEntry(timeEntryId, harvestWrite);
+  } else if (!timeEntryId && entry.harvest_time_entry_id && entry.sync_status === "synced") {
+    // A 404 here is often "cannot see another user's entry", not "it was deleted".
+    // Do not create a second Harvest timer for the same Jira worklog.
+    return entry;
   } else if (!timeEntryId) {
     const created = await createHarvestTimeEntry(harvestWrite);
     timeEntryId = created.id;
