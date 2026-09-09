@@ -1,5 +1,6 @@
 import { resolveHarvestAccessForDirectory, resolveOrgHarvestAccess } from "@/lib/harvest-directory";
 import { IN_REQUEST_RETRIES } from "./config";
+import { harvestEntryIssueKey } from "./duplicates";
 import { SyncError } from "./types";
 import type { HarvestTaskAssignment } from "./tasks";
 
@@ -190,17 +191,17 @@ export async function listProjectTaskAssignments(projectId: number): Promise<Har
 }
 
 export async function listHarvestTimeEntries(params: {
-  userId: number;
+  userId?: number;
   from: string;
   to: string;
   projectId?: number;
 }): Promise<HarvestTimeEntryListItem[]> {
   const search = new URLSearchParams({
-    user_id: String(params.userId),
     from: params.from,
     to: params.to,
     per_page: "100",
   });
+  if (params.userId) search.set("user_id", String(params.userId));
   if (params.projectId) search.set("project_id", String(params.projectId));
   const data = await harvestRequest<{ time_entries: HarvestTimeEntryListItem[] }>(`/time_entries?${search}`);
   return data.time_entries ?? [];
@@ -265,6 +266,29 @@ export async function updateHarvestTimeEntry(
 
 export async function deleteHarvestTimeEntry(timeEntryId: number): Promise<void> {
   await harvestRequest(`/time_entries/${timeEntryId}`, { method: "DELETE" });
+}
+
+export async function deleteUnmappedHarvestEntriesForIssue(input: {
+  issueKey: string;
+  projectId: number;
+  from: string;
+  to: string;
+  keepHarvestIds: Set<number>;
+}): Promise<number> {
+  const entries = await listHarvestTimeEntries({
+    from: input.from,
+    to: input.to,
+    projectId: input.projectId,
+  });
+  const issueKey = input.issueKey.toUpperCase();
+  let removed = 0;
+  for (const entry of entries) {
+    if (input.keepHarvestIds.has(entry.id)) continue;
+    if (harvestEntryIssueKey(entry) !== issueKey) continue;
+    await deleteHarvestTimeEntry(entry.id);
+    removed += 1;
+  }
+  return removed;
 }
 
 export async function pingHarvest(): Promise<void> {

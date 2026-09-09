@@ -37,10 +37,13 @@ function issueKeyFromNotes(notes: string | null | undefined): string | null {
   return match?.[1]?.toUpperCase() ?? null;
 }
 
-function candidateIssueKey(candidate: DuplicateCandidate): string | null {
-  const fromRef = issueKeyFromExternalReference(candidate.external_reference);
+export function harvestEntryIssueKey(entry: {
+  notes?: string | null;
+  external_reference?: { id: string; permalink?: string } | null;
+}): string | null {
+  const fromRef = issueKeyFromExternalReference(entry.external_reference);
   if (fromRef) return fromRef.toUpperCase();
-  return issueKeyFromNotes(candidate.notes);
+  return issueKeyFromNotes(entry.notes);
 }
 
 /**
@@ -54,7 +57,7 @@ export function isLikelyDuplicateHarvestEntry(candidate: DuplicateCandidate, tar
   if (candidate.spent_date !== target.spentDate) return false;
   if (candidate.project_id !== target.projectId) return false;
 
-  const candidateIssue = candidateIssueKey(candidate);
+  const candidateIssue = harvestEntryIssueKey(candidate);
   const targetIssue = target.issueKey.toUpperCase();
 
   if (candidateIssue && candidateIssue !== targetIssue) return false;

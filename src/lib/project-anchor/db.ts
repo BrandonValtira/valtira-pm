@@ -74,15 +74,7 @@ export async function upsertEntryByWorklog(fields: EntryUpsert): Promise<Project
     jira_issue_id: String(fields.jira_issue_id),
     jira_account_id: String(fields.jira_account_id),
     updated_at: new Date().toISOString(),
-    ...(resurrect
-      ? {
-          harvest_time_entry_id: null,
-          harvest_link_source: null,
-          duplicate_harvest_time_entry_id: null,
-          retry_count: 0,
-          last_error: null,
-        }
-      : {}),
+    ...(resurrect ? { retry_count: 0, last_error: null } : {}),
   };
 
   if (existing) {

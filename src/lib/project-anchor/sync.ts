@@ -151,30 +151,36 @@ async function applyHarvestWrite(entry: ProjectAnchorEntry): Promise<ProjectAnch
     duplicateId = duplicate.id;
   }
 
-  if (!timeEntryId) {
-    const created = await createHarvestTimeEntry({
-      userId: userMap.harvest_user_id!,
-      projectId: project.id,
-      taskId: assignment.task.id,
-      spentDate: entry.spent_date,
-      hours: Number(entry.hours),
-      notes: nextPayload.notes,
-      issueKey: entry.jira_issue_key,
-      jiraBrowseUrl: browse,
-    });
+  const harvestWrite = {
+    userId: userMap.harvest_user_id!,
+    projectId: project.id,
+    taskId: assignment.task.id,
+    spentDate: entry.spent_date,
+    hours: Number(entry.hours),
+    notes: nextPayload.notes,
+    issueKey: entry.jira_issue_key,
+    jiraBrowseUrl: browse,
+  };
+
+  if (timeEntryId) {
+    try {
+      await updateHarvestTimeEntry(timeEntryId, harvestWrite);
+      linkSource = linkSource ?? "created";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/Harvest API 404/.test(message)) throw error;
+      timeEntryId = null;
+    }
+  }
+
+  if (!timeEntryId && duplicate) {
+    timeEntryId = duplicate.id;
+    linkSource = "adopted";
+    await updateHarvestTimeEntry(timeEntryId, harvestWrite);
+  } else if (!timeEntryId) {
+    const created = await createHarvestTimeEntry(harvestWrite);
     timeEntryId = created.id;
     linkSource = "created";
-  } else {
-    await updateHarvestTimeEntry(timeEntryId, {
-      projectId: project.id,
-      taskId: assignment.task.id,
-      spentDate: entry.spent_date,
-      hours: Number(entry.hours),
-      notes: nextPayload.notes,
-      issueKey: entry.jira_issue_key,
-      jiraBrowseUrl: browse,
-    });
-    linkSource = linkSource ?? "created";
   }
 
   await touchSyncState({ last_successful_harvest_at: new Date().toISOString(), last_harvest_error: null });

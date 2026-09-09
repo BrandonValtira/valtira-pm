@@ -8,7 +8,7 @@ import {
   isHarvestTaskFieldName,
   jqlForHarvestProjectField,
 } from "./jira-fields.ts";
-import { isLikelyDuplicateHarvestEntry, pickDuplicateCandidate } from "./duplicates.ts";
+import { harvestEntryIssueKey, isLikelyDuplicateHarvestEntry, pickDuplicateCandidate } from "./duplicates.ts";
 import { extractTaskTag, findTaskAssignment, resolveRequestedTaskName, STANDARD_HARVEST_ROLES } from "./tasks.ts";
 import {
   hoursFromSeconds,
@@ -171,6 +171,20 @@ describe("allowlist", () => {
       if (previous == null) delete process.env.HARVEST_ALLOWED_PROJECT_CODES;
       else process.env.HARVEST_ALLOWED_PROJECT_CODES = previous;
     }
+  });
+});
+
+describe("harvest issue matching", () => {
+  it("reads the Jira key from Harvest notes or external_reference", () => {
+    assert.equal(harvestEntryIssueKey({ notes: "CS-106 research", external_reference: null }), "CS-106");
+    assert.equal(
+      harvestEntryIssueKey({
+        notes: null,
+        external_reference: { id: "CS-107", permalink: "https://example.atlassian.net/browse/CS-107" },
+      }),
+      "CS-107"
+    );
+    assert.equal(harvestEntryIssueKey({ notes: "no ticket", external_reference: null }), null);
   });
 });
 
