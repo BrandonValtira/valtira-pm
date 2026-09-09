@@ -2,19 +2,18 @@
 
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, type RefObject } from "react";
+import { useState, useEffect, useRef, type RefObject } from "react";
 import { PeriodTypeFields, ReportConfigFields } from "@/components/report-config-fields";
 import { ValtiraLogo } from "@/components/valtira-logo";
 import type { BudgetAllocationData } from "@/lib/budget-allocation-report";
 import { segmentDisplayPercent, segmentKey } from "@/lib/budget-allocation-report";
+import { formatBudgetAmount } from "@/lib/budget-unit";
+import { type BudgetBurnSnapshot } from "@/lib/budget-burn-chart";
 import {
-  buildBudgetRemainingDisplay,
-  formatBudgetAmount,
-} from "@/lib/budget-unit";
-import {
-  buildBudgetBurnDisplay,
-  type BudgetBurnSnapshot,
-} from "@/lib/budget-burn-chart";
+  buildReportHarvestProjectBlocks,
+  formatHoursConsumed,
+  type ReportHarvestProjectBlock,
+} from "@/lib/report-harvest-blocks";
 import {
   budgetReportLabel,
   defaultReportConfig,
@@ -209,65 +208,102 @@ function varianceClassName(v: { emailColor: string }): string {
   return "text-neutral-600";
 }
 
-function BudgetBurnOverview({
-  report,
-  snapshot,
-  periodHours,
+function HarvestProjectBudgetCards({
+  block,
+  showConsumption,
+  heading,
 }: {
-  report: Report;
-  snapshot: NonNullable<Report["harvest_data_snapshot"]>;
-  periodHours: number;
+  block: ReportHarvestProjectBlock;
+  showConsumption: boolean;
+  heading: boolean;
 }) {
-  const display = buildBudgetBurnDisplay({
-    budgetBurn: snapshot.budgetBurn,
-    harvestProjects: snapshot.harvestProjects ?? [],
-    harvestProjectNames: snapshot.harvestProjectNames ?? [],
-    periodType: report.period_type === "month" ? "month" : "week",
-    periodEnd: report.period_end,
-    periodHours,
-    periodEntries: snapshot.timeEntries ?? [],
-  });
-
-  if (!display) {
-    return (
-      <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-600">
-        No budget set in Harvest for this project. Add a budget in Harvest to see utilization tracking.
-      </div>
-    );
-  }
+  const remaining = block.remaining;
+  const burn = block.consumption;
+  const remainingCard = (
+    <div className="rounded-lg border border-[#E8E2DA] bg-white p-3">
+      <h5 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Budget remaining</h5>
+      <p className="mt-2 text-sm text-neutral-900">
+        {remaining.remaining != null && remaining.total != null
+          ? `${formatBudgetAmount(remaining.remaining, remaining.unit)} remaining`
+          : "No budget is set in Harvest."}
+      </p>
+      {remaining.total != null && (
+        <p className="mt-1 text-xs text-neutral-500">
+          of {formatBudgetAmount(remaining.total, remaining.unit)} total
+          {remaining.hasHarvestBudgetReport
+            ? ` · ${formatBudgetAmount(remaining.spent, remaining.unit)} used to date`
+            : ""}
+        </p>
+      )}
+    </div>
+  );
 
   return (
-    <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4">
-      <h4 className="text-sm font-semibold text-neutral-900">Budget consumption</h4>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-md border border-neutral-200 bg-white p-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-            {display.periodLabel}
-          </p>
-          <p className="mt-1 text-sm text-neutral-900">
-            <span className="font-bold">{formatBudgetAmount(display.periodActual, display.periodActualUnit)}</span> utilized ·{" "}
-            <span className="font-medium">{formatBudgetAmount(display.periodBudget, display.unit)}</span> budgeted
-          </p>
-          <p className={`mt-0.5 text-xs ${varianceClassName(display.periodVariance)}`}>
-            {display.periodVariance.label}
-          </p>
+    <div className="mt-4">
+      {heading && block.name ? (
+        <h4 className="mb-2 text-base font-semibold text-neutral-900">{block.name}</h4>
+      ) : null}
+      {showConsumption ? (
+        <>
+          {burn ? (
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+              <h5 className="text-sm font-semibold text-neutral-900">Budget consumption</h5>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-md border border-neutral-200 bg-white p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                    {burn.periodLabel}
+                  </p>
+                  <p className="mt-1 text-sm text-neutral-900">
+                    <span className="font-bold">
+                      {formatBudgetAmount(burn.periodActual, burn.periodActualUnit)}
+                    </span>{" "}
+                    utilized ·{" "}
+                    <span className="font-medium">{formatBudgetAmount(burn.periodBudget, burn.unit)}</span> budgeted
+                  </p>
+                  <p className={`mt-0.5 text-xs ${varianceClassName(burn.periodVariance)}`}>
+                    {burn.periodVariance.label}
+                  </p>
+                </div>
+                <div className="rounded-md border border-neutral-200 bg-white p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                    {burn.contractDateLabel}
+                  </p>
+                  <p className="mt-1 text-sm text-neutral-900">
+                    <span className="font-bold">
+                      {formatBudgetAmount(burn.spentToDate, burn.spentToDateUnit)}
+                    </span>{" "}
+                    utilized ·{" "}
+                    <span className="font-medium">{formatBudgetAmount(burn.totalBudget, burn.unit)}</span> total
+                    budget
+                  </p>
+                  <p className={`mt-0.5 text-xs ${varianceClassName(burn.contractVariance)}`}>
+                    {burn.contractVariance.label}
+                  </p>
+                  <p className="mt-0.5 text-xs text-neutral-600">
+                    Expected utilization: ~{formatBudgetAmount(burn.monthlyBudget, burn.unit)}/mo · ~
+                    {formatBudgetAmount(burn.weeklyBudget, burn.unit)}/wk
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-600">
+              No budget set in Harvest for this project. Add a budget in Harvest to see utilization tracking.
+            </div>
+          )}
+          <div className="mt-3">{remainingCard}</div>
+        </>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-[#E8E2DA] bg-white p-3">
+            <h5 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Budget utilized</h5>
+            <p className="mt-2 text-sm text-neutral-900">
+              <span className="font-bold">{formatHoursConsumed(block.hours)}</span> consumed this period.
+            </p>
+          </div>
+          {remainingCard}
         </div>
-        <div className="rounded-md border border-neutral-200 bg-white p-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-            {display.contractDateLabel}
-          </p>
-          <p className="mt-1 text-sm text-neutral-900">
-            <span className="font-bold">{formatBudgetAmount(display.spentToDate, display.spentToDateUnit)}</span> utilized ·{" "}
-            <span className="font-medium">{formatBudgetAmount(display.totalBudget, display.unit)}</span> total budget
-          </p>
-          <p className={`mt-0.5 text-xs ${varianceClassName(display.contractVariance)}`}>
-            {display.contractVariance.label}
-          </p>
-          <p className="mt-0.5 text-xs text-neutral-600">
-            Expected utilization: ~{formatBudgetAmount(display.monthlyBudget, display.unit)}/mo · ~{formatBudgetAmount(display.weeklyBudget, display.unit)}/wk
-          </p>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -285,16 +321,23 @@ function ReportContent({ report }: { report: Report }) {
   const totalHours = allocation?.totalHours ?? entries.reduce((s, e) => s + e.hours, 0);
   const projectNames = snapshot?.harvestProjectNames ?? [];
   const harvestProjects = snapshot?.harvestProjects ?? [];
-  const budgetRemaining = buildBudgetRemainingDisplay(harvestProjects);
-  const totalCostBudget = harvestProjects.reduce((s, p) => s + (p.cost_budget ?? 0), 0) || null;
-  const avgRate =
-    harvestProjects.length > 0
-      ? harvestProjects.reduce((s, p) => s + (p.hourly_rate ?? 0), 0) / harvestProjects.length
-      : 0;
-  const spentFundsEstimate = avgRate * totalHours;
+  const blocks = buildReportHarvestProjectBlocks({
+    harvestProjects,
+    harvestProjectNames: projectNames,
+    entries,
+    periodType: report.period_type,
+    periodEnd: report.period_end,
+    budgetBurn: snapshot?.budgetBurn,
+  });
+  const showProjectHeadings = blocks.length > 1;
+  const showConsumption = config.components.budgetConsumption;
   const clientNames = Array.from(new Set(harvestProjects.map((p) => p.client_name).filter(Boolean))) as string[];
   const clientLabel = clientNames.length > 0 ? clientNames.join(", ") : null;
-  const projectLabel = projectNames.length > 0 ? projectNames.join(", ") : "Harvest project";
+  const projectLabel = showProjectHeadings
+    ? ""
+    : projectNames.length > 0
+      ? projectNames.join(", ")
+      : "Harvest project";
   const titleLine = formatReportTitleLine(clientLabel, projectLabel);
   const reportKind = budgetReportLabel(report.period_type);
   const dateRange = `${formatReportDate(report.period_start)} – ${formatReportDate(report.period_end)}`;
@@ -314,26 +357,17 @@ function ReportContent({ report }: { report: Report }) {
       <p className="mt-0.5 text-sm text-neutral-600">{dateRange}</p>
 
       {snapshot ? (
-        <BudgetBurnOverview report={report} snapshot={snapshot} periodHours={totalHours} />
+        blocks.map((block) => (
+          <HarvestProjectBudgetCards
+            key={block.key}
+            block={block}
+            showConsumption={showConsumption}
+            heading={showProjectHeadings}
+          />
+        ))
       ) : (
-        <p className="mt-4 text-sm text-neutral-700">{totalHours.toFixed(1)} hours this period.</p>
+        <p className="mt-4 text-sm text-neutral-700">{formatHoursConsumed(totalHours)} this period.</p>
       )}
-      <div className="mt-3 rounded-lg border border-[#E8E2DA] bg-white p-3">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Budget remaining</h4>
-        <p className="mt-2 text-sm text-neutral-900">
-          {budgetRemaining.remaining != null && budgetRemaining.total != null
-            ? `${formatBudgetAmount(budgetRemaining.remaining, budgetRemaining.unit)} remaining`
-            : "No budget is set in Harvest."}
-        </p>
-        {budgetRemaining.total != null && (
-          <p className="mt-1 text-xs text-neutral-500">
-            of {formatBudgetAmount(budgetRemaining.total, budgetRemaining.unit)} total
-            {budgetRemaining.hasHarvestBudgetReport
-              ? ` · ${formatBudgetAmount(budgetRemaining.spent, budgetRemaining.unit)} used to date`
-              : ""}
-          </p>
-        )}
-      </div>
 
       {config.components.projectSummary && (
         <div className="mt-5">
@@ -361,15 +395,24 @@ function ReportContent({ report }: { report: Report }) {
       {config.components.financialSummary && (
         <div className="mt-5 rounded-lg border border-[#E8E2DA] bg-white p-3">
           <h4 className="text-sm font-medium text-neutral-900">Financial summary</h4>
-          <p className="mt-2 text-sm text-neutral-900">Total hours: {totalHours.toFixed(1)}</p>
-          {spentFundsEstimate > 0 && (
-            <p className="text-sm text-neutral-900">
-              Period total: ${spentFundsEstimate.toFixed(2)} (est.)
-            </p>
-          )}
-          {totalCostBudget != null && totalCostBudget > 0 && (
-            <p className="text-sm text-neutral-600">Contract funds budget: ${totalCostBudget.toLocaleString()}</p>
-          )}
+          {blocks.map((block) => (
+            <div key={`financial-${block.key}`} className="mt-3 first:mt-2">
+              {showProjectHeadings && block.name ? (
+                <p className="text-sm font-semibold text-neutral-900">{block.name}</p>
+              ) : null}
+              <p className="text-sm text-neutral-900">Total hours: {block.hours.toFixed(1)}</p>
+              {block.spentFundsEstimate > 0 && (
+                <p className="text-sm text-neutral-900">
+                  Period total: ${block.spentFundsEstimate.toFixed(2)} (est.)
+                </p>
+              )}
+              {block.costBudget != null && (
+                <p className="text-sm text-neutral-600">
+                  Contract funds budget: ${block.costBudget.toLocaleString()}
+                </p>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
@@ -437,18 +480,23 @@ export function ReportSection({
   const [generateConfig, setGenerateConfig] = useState<ReportConfig>(defaultReportConfig);
   const [editingAutomationId, setEditingAutomationId] = useState<string | null>(null);
   const [sendTestAutomationId, setSendTestAutomationId] = useState<string | null>(null);
+  const openedFromUrl = useRef(false);
 
   useEffect(() => {
     setReports(initialReports);
   }, [initialReports]);
 
   useEffect(() => {
-    if (!initialOpenReportId || reports.length === 0) return;
+    if (openedFromUrl.current || !initialOpenReportId) return;
     const report = reports.find((r) => r.id === initialOpenReportId);
-    if (report) {
-      setModalReport(report);
-      setSendToEmails((report.status === "pending_approval" || report.status === "draft") && clientEmails.length > 0 ? [...clientEmails] : [""]);
-    }
+    if (!report) return;
+    openedFromUrl.current = true;
+    setModalReport(report);
+    setSendToEmails(
+      (report.status === "pending_approval" || report.status === "draft") && clientEmails.length > 0
+        ? [...clientEmails]
+        : [""]
+    );
   }, [initialOpenReportId, reports, clientEmails]);
 
   const sentReports = reports.filter((r) => r.status === "sent");
@@ -670,12 +718,13 @@ export function ReportSection({
         setError(data.error || res.statusText);
         return;
       }
-      setReports((prev) => [data, ...prev]);
+      setReports((prev) => [data, ...prev.filter((r) => r.id !== data.id)]);
       setModalReport(data);
       setSendToEmails([""]);
       setGenerateModalOpen(false);
       setGeneratePeriodValue("last");
       setGenerateConfig(defaultReportConfig());
+      router.replace(`/dashboard/project/${projectId}`);
       router.refresh();
     } finally {
       setLoading(null);
@@ -955,7 +1004,7 @@ export function ReportSection({
           <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border border-neutral-200 bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-neutral-900">Generate report</h3>
             <p className="mt-1 text-sm text-neutral-700">
-              Choose cadence, period, and optional components. Title, timeframe, and budget basics are always included.
+              Choose cadence, period, and optional components. Title, timeframe, Budget utilized, and Budget remaining are always included.
             </p>
             <div className="mt-4 space-y-4">
               <PeriodTypeFields

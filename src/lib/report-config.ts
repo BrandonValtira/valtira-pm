@@ -7,6 +7,7 @@ import {
 export type ReportPeriodType = "week" | "biweek" | "month";
 
 export type ReportComponentId =
+  | "budgetConsumption"
   | "taskDetail"
   | "projectSummary"
   | "financialSummary"
@@ -41,9 +42,9 @@ export const ALWAYS_ON_SECTIONS = [
     description: "The week, two-week, or month covered by this report.",
   },
   {
-    id: "budgetConsumption",
-    label: "Budget consumption",
-    description: "Hours or fees used vs budgeted, with variance for the period and contract.",
+    id: "budgetUtilized",
+    label: "Budget utilized",
+    description: "Hours consumed in the reporting period. Hidden when Budget consumption is selected.",
   },
   {
     id: "budgetRemaining",
@@ -57,6 +58,12 @@ export const OPTIONAL_COMPONENTS: {
   label: string;
   description: string;
 }[] = [
+  {
+    id: "budgetConsumption",
+    label: "Budget consumption",
+    description:
+      "Hours or fees used vs budgeted, with variance for the period. Replaces Budget utilized; the two never appear together.",
+  },
   {
     id: "taskDetail",
     label: "Task details",
@@ -92,6 +99,7 @@ export const PERIOD_TYPE_OPTIONS: { value: ReportPeriodType; label: string }[] =
 ];
 
 const DEFAULT_COMPONENTS: ReportComponents = {
+  budgetConsumption: false,
   taskDetail: false,
   projectSummary: false,
   financialSummary: false,
@@ -184,6 +192,7 @@ function asString(value: unknown): string {
 export function componentsFromLegacyFormat(format: ReportFormat | string | null | undefined): ReportComponents {
   if (format === REPORT_FORMAT_BUDGET_ALLOCATION) {
     return {
+      budgetConsumption: false,
       taskDetail: true,
       projectSummary: true,
       financialSummary: true,
@@ -192,6 +201,7 @@ export function componentsFromLegacyFormat(format: ReportFormat | string | null 
     };
   }
   return {
+    budgetConsumption: false,
     taskDetail: true,
     projectSummary: false,
     financialSummary: false,
@@ -214,6 +224,7 @@ export function normalizeReportConfig(
       ? (raw.components as Record<string, unknown>)
       : raw;
   const hasExplicitComponents =
+    "budgetConsumption" in rawComponents ||
     "taskDetail" in rawComponents ||
     "projectSummary" in rawComponents ||
     "hoursByProject" in rawComponents ||
@@ -229,6 +240,7 @@ export function normalizeReportConfig(
   return {
     schemaVersion,
     components: {
+      budgetConsumption: asBoolean(source.budgetConsumption, fallback.budgetConsumption),
       taskDetail: asBoolean(source.taskDetail, fallback.taskDetail),
       projectSummary: asBoolean(
         source.projectSummary ?? (source as Record<string, unknown>).hoursByProject,

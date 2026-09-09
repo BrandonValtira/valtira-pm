@@ -1,23 +1,24 @@
 import type { BudgetAllocationData } from "@/lib/budget-allocation-report";
 import { segmentDisplayPercent } from "@/lib/budget-allocation-report";
-import {
-  buildBudgetRemainingDisplay,
-  formatBudgetAmount,
-} from "@/lib/budget-unit";
-import {
-  buildBudgetBurnDisplay,
-  type BudgetBurnSnapshot,
-} from "@/lib/budget-burn-chart";
+import { formatBudgetAmount } from "@/lib/budget-unit";
+import { type BudgetBurnSnapshot } from "@/lib/budget-burn-chart";
 import {
   budgetReportLabel,
   formatReportTitleLine,
   normalizeReportConfig,
 } from "@/lib/report-config";
+import {
+  buildReportHarvestProjectBlocks,
+  formatHoursConsumed,
+  type ReportHarvestProjectBlock,
+} from "@/lib/report-harvest-blocks";
 import { formatDateOnly } from "@/lib/report-week";
 
 export const VALTIRA_LOGO_CID = "valtira-logo";
 
 type HarvestProjectSnapshot = {
+  id?: number;
+  name?: string;
   client_name?: string | null;
   budget?: number | null;
   cost_budget?: number | null;
@@ -31,6 +32,7 @@ type TimeEntry = {
   hours: number;
   billable_rate?: number | null;
   hourly_rate?: number | null;
+  project?: { id?: number; name?: string } | null;
 };
 
 export type ReportForEmail = {
@@ -77,6 +79,92 @@ function cardHtml(title: string, body: string): string {
     </td>`;
 }
 
+function utilizedBody(hours: number): string {
+  return `<p style="margin:0;"><strong>${escapeHtml(formatHoursConsumed(hours))}</strong> consumed this period.</p>`;
+}
+
+function remainingBody(block: ReportHarvestProjectBlock): string {
+  const remaining = block.remaining;
+  if (remaining.remaining != null && remaining.total != null) {
+    return `<p style="margin:0 0 4px 0;"><strong>${formatBudgetAmount(remaining.remaining, remaining.unit)}</strong> remaining</p>
+         <p style="margin:0;color:#6B645C;">of ${formatBudgetAmount(remaining.total, remaining.unit)} total${remaining.hasHarvestBudgetReport ? ` · ${formatBudgetAmount(remaining.spent, remaining.unit)} used to date` : ""}</p>`;
+  }
+  return `<p style="margin:0;color:#6B645C;">No budget is set in Harvest.</p>`;
+}
+
+function consumptionOverviewHtml(block: ReportHarvestProjectBlock): string {
+  const burn = block.consumption;
+  if (!burn) {
+    return `<p style="margin:0;color:#6B645C;">No budget is set in Harvest for this project.</p>`;
+  }
+  const timeframeCard = (
+    title: string,
+    amount: number,
+    amountUnit: "hours" | "cost",
+    budgetLabel: string,
+    variance: { label: string; emailColor: string },
+    footer?: string
+  ) => `
+    <td style="padding:14px 16px;background:#ffffff;border:1px solid #E8E2DA;border-radius:8px;vertical-align:top;width:50%;">
+      <p style="margin:0 0 6px 0;font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#8A8178;">${escapeHtml(title)}</p>
+      <p style="margin:0 0 4px 0;"><strong>${formatBudgetAmount(amount, amountUnit)}</strong> utilized · <strong>${budgetLabel}</strong></p>
+      <p style="margin:0;color:${variance.emailColor};font-weight:700;">${escapeHtml(variance.label)}</p>
+      ${footer ? `<p style="margin:6px 0 0 0;font-size:12px;color:#6B645C;">${footer}</p>` : ""}
+    </td>`;
+
+  return `
+    <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#8A8178;">Budget consumption</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+      <tr>
+        ${timeframeCard(
+          burn.periodLabel,
+          burn.periodActual,
+          burn.periodActualUnit,
+          `${formatBudgetAmount(burn.periodBudget, burn.unit)} budgeted`,
+          burn.periodVariance
+        )}
+        <td style="width:12px;">&nbsp;</td>
+        ${timeframeCard(
+          burn.contractDateLabel,
+          burn.spentToDate,
+          burn.spentToDateUnit,
+          `${formatBudgetAmount(burn.totalBudget, burn.unit)} total budget`,
+          burn.contractVariance,
+          `Expected utilization: ~${formatBudgetAmount(burn.monthlyBudget, burn.unit)}/mo · ~${formatBudgetAmount(burn.weeklyBudget, burn.unit)}/wk`
+        )}
+      </tr>
+    </table>`;
+}
+
+function harvestProjectCardsHtml(
+  block: ReportHarvestProjectBlock,
+  showConsumption: boolean,
+  heading: boolean
+): string {
+  const headingHtml = heading
+    ? `<p style="margin:0 0 10px 0;font-size:16px;line-height:1.35;font-weight:700;color:#2A2622;">${escapeHtml(block.name)}</p>`
+    : "";
+  const cards = showConsumption
+    ? `${consumptionOverviewHtml(block)}
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:12px;">
+        <tr>
+          ${cardHtml("Budget remaining", remainingBody(block))}
+        </tr>
+      </table>`
+    : `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+        <tr>
+          ${cardHtml("Budget utilized", utilizedBody(block.hours))}
+          <td style="width:12px;">&nbsp;</td>
+          ${cardHtml("Budget remaining", remainingBody(block))}
+        </tr>
+      </table>`;
+  return `
+    <div style="margin:0 0 22px 0;">
+      ${headingHtml}
+      ${cards}
+    </div>`;
+}
+
 export function generateReportEmailHtml(
   report: ReportForEmail,
   projectName: string,
@@ -85,53 +173,30 @@ export function generateReportEmailHtml(
   const config = normalizeReportConfig(report.report_config, report.report_format);
   const snapshot = report.harvest_data_snapshot;
   const entries = snapshot?.timeEntries ?? [];
-  const totalHours = entries.reduce((s, e) => s + e.hours, 0);
   const harvestProjects = snapshot?.harvestProjects ?? [];
   const projectNames = snapshot?.harvestProjectNames ?? [];
   const clientNames = Array.from(
     new Set(harvestProjects.map((p) => p.client_name).filter(Boolean))
   ) as string[];
-  const projectLabel = projectNames.length > 0 ? projectNames.join(", ") : projectName;
+  const blocks = buildReportHarvestProjectBlocks({
+    harvestProjects,
+    harvestProjectNames: projectNames,
+    entries,
+    periodType: report.period_type,
+    periodEnd: report.period_end,
+    budgetBurn: snapshot?.budgetBurn,
+  });
+  const showProjectHeadings = blocks.length > 1;
+  const projectLabel = showProjectHeadings
+    ? projectName
+    : projectNames.length > 0
+      ? projectNames.join(", ")
+      : projectName;
   const clientLabel = clientNames.join(", ");
   const titleLine = formatReportTitleLine(clientLabel, projectLabel);
   const reportKind = budgetReportLabel(report.period_type);
   const dateRange = formatReportDateRange(report.period_start, report.period_end);
-
-  const budgetRemaining = buildBudgetRemainingDisplay(harvestProjects);
-  const totalCostBudget = harvestProjects.reduce((s, p) => s + (p.cost_budget ?? 0), 0) || null;
-  const avgRate =
-    harvestProjects.length > 0
-      ? harvestProjects.reduce((s, p) => s + (p.hourly_rate ?? 0), 0) / harvestProjects.length
-      : 0;
-  const spentFundsEstimate = avgRate * totalHours;
-
-  const burnPeriodType = report.period_type === "month" ? "month" : "week";
-  const burnDisplay = buildBudgetBurnDisplay({
-    budgetBurn: snapshot?.budgetBurn,
-    harvestProjects: harvestProjects.map((p) => ({
-      budget: p.budget ?? null,
-      cost_budget: p.cost_budget,
-      budget_by: p.budget_by,
-      budget_spent: p.budget_spent,
-      hourly_rate: p.hourly_rate,
-    })),
-    harvestProjectNames: projectNames,
-    periodType: burnPeriodType,
-    periodEnd: report.period_end,
-    periodHours: snapshot?.budgetAllocation?.totalHours ?? totalHours,
-    periodEntries: entries,
-  });
-
-  const consumptionBody = burnDisplay
-    ? `<p style="margin:0 0 4px 0;"><strong>${formatBudgetAmount(burnDisplay.periodActual, burnDisplay.periodActualUnit)}</strong> used · <strong>${formatBudgetAmount(burnDisplay.periodBudget, burnDisplay.unit)}</strong> budgeted</p>
-       <p style="margin:0;color:${burnDisplay.periodVariance.emailColor};font-weight:700;">${escapeHtml(burnDisplay.periodVariance.label)}</p>`
-    : `<p style="margin:0;">${totalHours.toFixed(1)} hours logged this period.</p>`;
-
-  const remainingBody =
-    budgetRemaining.remaining != null && budgetRemaining.total != null
-      ? `<p style="margin:0 0 4px 0;"><strong>${formatBudgetAmount(budgetRemaining.remaining, budgetRemaining.unit)}</strong> remaining</p>
-         <p style="margin:0;color:#6B645C;">of ${formatBudgetAmount(budgetRemaining.total, budgetRemaining.unit)} total${budgetRemaining.hasHarvestBudgetReport ? ` · ${formatBudgetAmount(budgetRemaining.spent, budgetRemaining.unit)} used to date` : ""}</p>`
-      : `<p style="margin:0;color:#6B645C;">No budget is set in Harvest.</p>`;
+  const showConsumption = config.components.budgetConsumption;
 
   const allocation = snapshot?.budgetAllocation;
   const segments = allocation?.segments ?? [];
@@ -158,17 +223,28 @@ export function generateReportEmailHtml(
     ? `
       <div style="margin:22px 0 0 0;">
         <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#8A8178;">Financial summary</p>
-        <p style="margin:0 0 4px 0;"><strong>Total hours:</strong> ${totalHours.toFixed(1)}</p>
-        ${
-          spentFundsEstimate > 0
-            ? `<p style="margin:0 0 4px 0;"><strong>Period total:</strong> ${money(spentFundsEstimate)} (est.)</p>`
-            : ""
-        }
-        ${
-          totalCostBudget != null && totalCostBudget > 0
-            ? `<p style="margin:0;color:#6B645C;">Contract funds budget: ${money(totalCostBudget)}</p>`
-            : ""
-        }
+        ${blocks
+          .map((block) => {
+            const heading =
+              showProjectHeadings && block.name
+                ? `<p style="margin:0 0 4px 0;font-weight:700;">${escapeHtml(block.name)}</p>`
+                : "";
+            return `<div style="margin:0 0 12px 0;">
+              ${heading}
+              <p style="margin:0 0 4px 0;"><strong>Total hours:</strong> ${block.hours.toFixed(1)}</p>
+              ${
+                block.spentFundsEstimate > 0
+                  ? `<p style="margin:0 0 4px 0;"><strong>Period total:</strong> ${money(block.spentFundsEstimate)} (est.)</p>`
+                  : ""
+              }
+              ${
+                block.costBudget != null
+                  ? `<p style="margin:0;color:#6B645C;">Contract funds budget: ${money(block.costBudget)}</p>`
+                  : ""
+              }
+            </div>`;
+          })
+          .join("")}
       </div>`
     : "";
 
@@ -213,13 +289,7 @@ export function generateReportEmailHtml(
         </tr>
         <tr>
           <td style="padding:20px 32px 0 32px;font-family:Arial,Helvetica,sans-serif;color:#2A2622;">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-              <tr>
-                ${cardHtml("Budget consumption", consumptionBody)}
-                <td style="width:12px;">&nbsp;</td>
-                ${cardHtml("Budget remaining", remainingBody)}
-              </tr>
-            </table>
+            ${blocks.map((block) => harvestProjectCardsHtml(block, showConsumption, showProjectHeadings)).join("")}
             ${summaryHtml}
             ${financialHtml}
             ${additionalHtml}
