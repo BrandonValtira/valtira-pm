@@ -12,7 +12,7 @@ export async function GET() {
     const data = await loadTimeEntryDashboard(userId);
     return NextResponse.json(data);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load time entry data";
+    const message = error instanceof Error ? error.message : "Failed to load Time Sync data";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

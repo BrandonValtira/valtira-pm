@@ -15,15 +15,15 @@ export default async function TimeEntryPage() {
   try {
     data = await loadTimeEntryDashboard(userId);
   } catch (error) {
-    loadError = error instanceof Error ? error.message : "Failed to load Time Entry";
+    loadError = error instanceof Error ? error.message : "Failed to load Time Sync";
     data = null;
   }
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-neutral-900">Time Entry</h1>
+      <h1 className="text-2xl font-semibold text-neutral-900">Time Sync</h1>
       <p className="mt-1 text-sm text-neutral-700">
-        Project Anchor syncs native Jira worklogs to Harvest for issues with a Harvest Billing Project.
+        Oversee Jira worklogs syncing to Harvest for issues with a Harvest Billing Project.
       </p>
       {loadError ? (
         <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{loadError}</div>

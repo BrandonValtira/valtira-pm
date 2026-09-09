@@ -12,7 +12,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/resource-planning", label: "Resources", icon: ResourcesIcon },
   { href: "/dashboard/projects", label: "Projects", icon: ProjectsIcon },
   { href: "/dashboard/team", label: "Team", icon: TeamIcon, superAdminOnly: true },
-  { href: "/dashboard/time-entry", label: "Time Entry", icon: TimeEntryIcon },
+  { href: "/dashboard/time-entry", label: "Time Sync", icon: TimeEntryIcon },
 ];
 
 function MenuIcon({ className }: { className?: string }) {
