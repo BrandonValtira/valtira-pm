@@ -38,5 +38,5 @@ export function jqlForHarvestProjectField(projectFieldId: string | null): string
   if (numericId) clauses.push(`cf[${numericId}] is not EMPTY ORDER BY updated DESC`);
   clauses.push(`"${HARVEST_PROJECT_FIELD_LABEL}" is not EMPTY ORDER BY updated DESC`);
   clauses.push(`"Harvest Project" is not EMPTY ORDER BY updated DESC`);
-  return [...new Set(clauses)];
+  return Array.from(new Set(clauses));
 }
