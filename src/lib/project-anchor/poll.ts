@@ -77,17 +77,26 @@ export async function pollManagedJiraWorklogs(): Promise<{ pulled: number; ignor
       if (!issue.harvestProjectCode || !isHarvestProjectCodeAllowed(issue.harvestProjectCode)) continue;
       const project = await findHarvestProjectByCode(issue.harvestProjectCode);
       if (!project) continue;
+      const issueEntries = await listEntries({ issueKey: issue.key, limit: 200 });
       const keepHarvestIds = new Set(
-        (await listEntries({ issueKey: issue.key, limit: 200 }))
+        issueEntries
           .filter((entry) => entry.sync_status !== "deleted" && entry.harvest_time_entry_id)
           .map((entry) => entry.harvest_time_entry_id as number)
       );
+      const userIds = [
+        ...new Set(
+          issueEntries
+            .map((entry) => entry.harvest_user_id)
+            .filter((id): id is number => typeof id === "number" && Number.isFinite(id))
+        ),
+      ];
       await deleteUnmappedHarvestEntriesForIssue({
         issueKey: issue.key,
         projectId: project.id,
         from: lookback,
         to: today,
         keepHarvestIds,
+        userIds,
       });
     } catch (error) {
       errors += 1;

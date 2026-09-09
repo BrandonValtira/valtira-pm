@@ -196,15 +196,26 @@ export async function listHarvestTimeEntries(params: {
   to: string;
   projectId?: number;
 }): Promise<HarvestTimeEntryListItem[]> {
-  const search = new URLSearchParams({
-    from: params.from,
-    to: params.to,
-    per_page: "100",
-  });
-  if (params.userId) search.set("user_id", String(params.userId));
-  if (params.projectId) search.set("project_id", String(params.projectId));
-  const data = await harvestRequest<{ time_entries: HarvestTimeEntryListItem[] }>(`/time_entries?${search}`);
-  return data.time_entries ?? [];
+  const all: HarvestTimeEntryListItem[] = [];
+  let page = 1;
+  for (;;) {
+    const search = new URLSearchParams({
+      from: params.from,
+      to: params.to,
+      per_page: "100",
+      page: String(page),
+    });
+    if (params.userId) search.set("user_id", String(params.userId));
+    if (params.projectId) search.set("project_id", String(params.projectId));
+    const data = await harvestRequest<{
+      time_entries: HarvestTimeEntryListItem[];
+      next_page: number | null;
+    }>(`/time_entries?${search}`);
+    all.push(...(data.time_entries ?? []));
+    if (!data.next_page || !data.time_entries?.length) break;
+    page = data.next_page;
+  }
+  return all;
 }
 
 export function harvestExternalReference(issueKey: string, permalink: string) {
@@ -274,12 +285,27 @@ export async function deleteUnmappedHarvestEntriesForIssue(input: {
   from: string;
   to: string;
   keepHarvestIds: Set<number>;
+  userIds?: number[];
 }): Promise<number> {
-  const entries = await listHarvestTimeEntries({
-    from: input.from,
-    to: input.to,
-    projectId: input.projectId,
-  });
+  const entries =
+    input.userIds?.length
+      ? (
+          await Promise.all(
+            input.userIds.map((userId) =>
+              listHarvestTimeEntries({
+                userId,
+                from: input.from,
+                to: input.to,
+                projectId: input.projectId,
+              })
+            )
+          )
+        ).flat()
+      : await listHarvestTimeEntries({
+          from: input.from,
+          to: input.to,
+          projectId: input.projectId,
+        });
   const issueKey = input.issueKey.toUpperCase();
   let removed = 0;
   for (const entry of entries) {
