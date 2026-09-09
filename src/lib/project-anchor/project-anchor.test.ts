@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { describe, it } from "node:test";
 import { harvestProjectCodeFromField, isHarvestProjectCodeAllowed } from "./config.ts";
+import { shouldIngestWorklog, worklogAlreadySynced } from "./sync-rules.ts";
 import {
   fieldIdFromNames,
   isHarvestProjectFieldName,
@@ -171,6 +172,22 @@ describe("allowlist", () => {
       if (previous == null) delete process.env.HARVEST_ALLOWED_PROJECT_CODES;
       else process.env.HARVEST_ALLOWED_PROJECT_CODES = previous;
     }
+  });
+});
+
+describe("worklog ingest rules", () => {
+  it("always ingests a worklog we already synced, even outside the lookback", () => {
+    assert.equal(shouldIngestWorklog("80169", "2026-01-01", "2026-09-01", new Set(["80169"])), true);
+    assert.equal(shouldIngestWorklog("80170", "2026-01-01", "2026-09-01", new Set(["80169"])), false);
+    assert.equal(shouldIngestWorklog("80170", "2026-09-08", "2026-09-01", new Set()), true);
+  });
+
+  it("treats hour, date, or note edits as a change that must sync", () => {
+    const existing = { sync_status: "synced", hours: 0.75, spent_date: "2026-09-09", notes: "CS-106" };
+    assert.equal(worklogAlreadySynced(existing, { hours: 0.75, spentDate: "2026-09-09", notes: "CS-106" }), true);
+    assert.equal(worklogAlreadySynced(existing, { hours: 1.5, spentDate: "2026-09-09", notes: "CS-106" }), false);
+    assert.equal(worklogAlreadySynced(existing, { hours: 0.75, spentDate: "2026-09-08", notes: "CS-106" }), false);
+    assert.equal(worklogAlreadySynced(existing, { hours: 0.75, spentDate: "2026-09-09", notes: "CS-106 updated" }), false);
   });
 });
 

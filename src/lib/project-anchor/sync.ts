@@ -24,6 +24,7 @@ import { SyncError } from "./types";
 import { resolveUserMap } from "./users";
 import type { ParsedWorklogEvent } from "./types";
 import { hoursFromSeconds, spentDateFromStarted } from "./webhook";
+import { worklogAlreadySynced } from "./sync-rules";
 
 function notesWithIssue(commentText: string, issueKey: string): string {
   const trimmed = commentText.trim();
@@ -177,10 +178,6 @@ async function applyHarvestWrite(entry: ProjectAnchorEntry): Promise<ProjectAnch
     timeEntryId = duplicate.id;
     linkSource = "adopted";
     await updateHarvestTimeEntry(timeEntryId, harvestWrite);
-  } else if (!timeEntryId && entry.harvest_time_entry_id && entry.sync_status === "synced") {
-    // A 404 here is often "cannot see another user's entry", not "it was deleted".
-    // Do not create a second Harvest timer for the same Jira worklog.
-    return entry;
   } else if (!timeEntryId) {
     const created = await createHarvestTimeEntry(harvestWrite);
     timeEntryId = created.id;
@@ -300,17 +297,13 @@ export async function handleWorklogEvent(event: ParsedWorklogEvent): Promise<{
 
   const hours = hoursFromSeconds(timeSpentSeconds);
   const spentDate = spentDateFromStarted(started);
+  const notes = notesWithIssue(commentText || issue.key, issue.key);
   const existing = await getEntryByWorklogId(event.worklogId);
-  if (
-    existing &&
-    (existing.sync_status === "synced" || existing.sync_status === "duplicate") &&
-    Number(existing.hours) === hours &&
-    existing.spent_date === spentDate
-  ) {
+  if (existing && worklogAlreadySynced(existing, { hours, spentDate, notes })) {
     return { ignored: false, entry: existing };
   }
 
-  const action: SyncAction = event.webhookEvent === "worklog_updated" ? "updated" : "created";
+  const action: SyncAction = existing || event.webhookEvent === "worklog_updated" ? "updated" : "created";
 
   const entry = await upsertEntryByWorklog({
     jira_issue_id: issue.id,
@@ -320,7 +313,7 @@ export async function handleWorklogEvent(event: ParsedWorklogEvent): Promise<{
     jira_account_id: accountId,
     hours,
     spent_date: spentDate,
-    notes: commentText || issue.key,
+    notes,
     action,
     sync_status: "pending",
     harvest_project_code: projectCode,

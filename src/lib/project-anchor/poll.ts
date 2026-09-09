@@ -3,6 +3,7 @@ import { listEntries, touchSyncState } from "./db";
 import { deleteUnmappedHarvestEntriesForIssue, findHarvestProjectByCode } from "./harvest";
 import { getJiraIssueForSync, listIssueWorklogs, searchIssuesWithHarvestBillingProject } from "./jira";
 import { handleWorklogEvent } from "./sync";
+import { shouldIngestWorklog } from "./sync-rules";
 import { spentDateFromStarted, todayInTimeZone } from "./webhook";
 
 export async function pollManagedJiraWorklogs(): Promise<{ pulled: number; ignored: number; errors: number }> {
@@ -39,14 +40,18 @@ export async function pollManagedJiraWorklogs(): Promise<{ pulled: number; ignor
     const canWrite = Boolean(issue.harvestProjectCode && isHarvestProjectCodeAllowed(issue.harvestProjectCode));
     try {
       const { worklogs, listedAll } = await listIssueWorklogs(issue.key);
+      const existing = await listEntries({ issueKey: issue.key, limit: 200 });
+      const trackedIds = new Set(
+        existing.filter((entry) => entry.sync_status !== "deleted").map((entry) => entry.jira_worklog_id)
+      );
       const seen = new Set<string>();
       if (canWrite) {
         for (const worklog of worklogs) {
           const spentDate = spentDateFromStarted(worklog.started);
-          if (spentDate < lookback) continue;
+          if (!shouldIngestWorklog(worklog.id, spentDate, lookback, trackedIds)) continue;
           seen.add(worklog.id);
           const result = await handleWorklogEvent({
-            webhookEvent: "worklog_created",
+            webhookEvent: trackedIds.has(worklog.id) ? "worklog_updated" : "worklog_created",
             worklogId: worklog.id,
             issueId: worklog.issueId || issue.id,
             accountId: worklog.accountId,
@@ -59,10 +64,8 @@ export async function pollManagedJiraWorklogs(): Promise<{ pulled: number; ignor
         }
       }
       if (!listedAll) continue;
-      const existing = await listEntries({ issueKey: issue.key, limit: 200 });
       for (const entry of existing) {
         if (entry.sync_status === "deleted") continue;
-        if (entry.spent_date < lookback) continue;
         if (canWrite && seen.has(entry.jira_worklog_id)) continue;
         await handleWorklogEvent({
           webhookEvent: "worklog_deleted",
