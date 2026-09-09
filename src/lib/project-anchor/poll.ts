@@ -26,7 +26,7 @@ export async function pollManagedJiraWorklogs(): Promise<{ pulled: number; ignor
       continue;
     }
     try {
-      const worklogs = await listIssueWorklogs(issue.key);
+      const { worklogs, listedAll } = await listIssueWorklogs(issue.key);
       const seen = new Set<string>();
       for (const worklog of worklogs) {
         const spentDate = spentDateFromStarted(worklog.started);
@@ -44,6 +44,7 @@ export async function pollManagedJiraWorklogs(): Promise<{ pulled: number; ignor
         if (result.ignored) ignored += 1;
         else pulled += 1;
       }
+      if (!listedAll) continue;
       const existing = await listEntries({ issueKey: issue.key, limit: 200 });
       for (const entry of existing) {
         if (entry.sync_status === "deleted") continue;

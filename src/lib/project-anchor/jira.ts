@@ -1,5 +1,13 @@
-import { harvestProjectCodeFromField } from "./config";
+import { harvestProjectCodeFromField, isHarvestProjectCodeAllowed } from "./config";
 import { resolveOrgJiraAccess, type JiraOAuthAccess } from "@/lib/jira-auth";
+import {
+  HARVEST_PROJECT_FIELD_LABEL,
+  HARVEST_TASK_FIELD_LABEL,
+  fieldIdFromNames,
+  isHarvestProjectFieldName,
+  isHarvestTaskFieldName,
+  jqlForHarvestProjectField,
+} from "./jira-fields";
 import { SyncError } from "./types";
 import { jiraCommentToText } from "./webhook";
 
@@ -26,8 +34,25 @@ export type JiraWorklogForSync = {
   commentText: string;
 };
 
+export type JiraWorklogList = {
+  worklogs: JiraWorklogForSync[];
+  listedAll: boolean;
+};
+
+type JiraFieldMeta = {
+  id?: string;
+  name?: string;
+  untranslatedName?: string;
+  clauseNames?: string[];
+};
+
+type ResolvedFields = { projectFieldId: string | null; taskFieldId: string | null };
+
+const MISSING_PROJECT_FIELD =
+  'Create a Jira custom field named "Harvest Billing Project" and set it on issues that should sync to Harvest.';
+
 let lastSiteUrl: string | null = null;
-let cachedFields: { projectFieldId: string | null; taskFieldId: string | null } | null = null;
+let cachedFields: ResolvedFields | null = null;
 
 async function jiraAccess(): Promise<JiraOAuthAccess> {
   const access = await resolveOrgJiraAccess();
@@ -78,106 +103,184 @@ function customFieldValue(value: unknown): string | null {
   return null;
 }
 
-function normalizeFieldName(name: string): string {
-  return name.trim().toLowerCase().replace(/[_-]+/g, " ");
+function fieldLabels(field: JiraFieldMeta): string[] {
+  return [field.name, field.untranslatedName, ...(field.clauseNames ?? [])].filter(
+    (value): value is string => Boolean(value && value.trim())
+  );
 }
 
-async function resolveCustomFields(): Promise<{ projectFieldId: string | null; taskFieldId: string | null }> {
-  if (cachedFields) return cachedFields;
+function pickFieldId(fields: JiraFieldMeta[], predicate: (name: string) => boolean): string | null {
+  for (const field of fields) {
+    const id = field.id?.trim();
+    if (!id) continue;
+    if (fieldLabels(field).some(predicate)) return id;
+  }
+  return null;
+}
+
+function mergeResolved(base: ResolvedFields, extra: ResolvedFields): ResolvedFields {
+  return {
+    projectFieldId: base.projectFieldId ?? extra.projectFieldId,
+    taskFieldId: base.taskFieldId ?? extra.taskFieldId,
+  };
+}
+
+function rememberFields(fields: ResolvedFields): ResolvedFields {
+  if (fields.projectFieldId) cachedFields = fields;
+  return fields;
+}
+
+async function searchFieldsCatalog(query: string): Promise<JiraFieldMeta[]> {
+  const params = new URLSearchParams({ query, maxResults: "100" });
+  const data = await jiraFetch<{ values?: JiraFieldMeta[] }>(`/rest/api/3/field/search?${params}`);
+  return data.values ?? [];
+}
+
+async function resolveCustomFields(): Promise<ResolvedFields> {
+  if (cachedFields?.projectFieldId) return cachedFields;
   const envProject = process.env.JIRA_HARVEST_PROJECT_FIELD_ID?.trim() || null;
   const envTask = process.env.JIRA_HARVEST_TASK_FIELD_ID?.trim() || null;
   if (envProject) {
-    cachedFields = { projectFieldId: envProject, taskFieldId: envTask };
-    return cachedFields;
+    return rememberFields({ projectFieldId: envProject, taskFieldId: envTask });
   }
-  const fields = await jiraFetch<Array<{ id?: string; name?: string }>>("/rest/api/3/field");
-  let projectFieldId: string | null = null;
-  let taskFieldId: string | null = envTask;
-  for (const field of fields ?? []) {
-    const id = field.id?.trim();
-    const name = normalizeFieldName(field.name ?? "");
-    if (!id || !name) continue;
-    if (!projectFieldId && (name === "harvest billing project" || name === "harvest project")) {
-      projectFieldId = id;
-    }
-    if (!taskFieldId && (name === "harvest billing task" || name === "harvest task")) {
-      taskFieldId = id;
+
+  let resolved: ResolvedFields = { projectFieldId: null, taskFieldId: envTask };
+  try {
+    const searched = [
+      ...(await searchFieldsCatalog(HARVEST_PROJECT_FIELD_LABEL)),
+      ...(await searchFieldsCatalog("Harvest Project")),
+      ...(await searchFieldsCatalog(HARVEST_TASK_FIELD_LABEL)),
+    ];
+    resolved = mergeResolved(resolved, {
+      projectFieldId: pickFieldId(searched, isHarvestProjectFieldName),
+      taskFieldId: envTask ?? pickFieldId(searched, isHarvestTaskFieldName),
+    });
+  } catch {
+    // Team-managed / next-gen fields often do not appear in the global catalog.
+  }
+
+  if (!resolved.projectFieldId) {
+    try {
+      const all = await jiraFetch<JiraFieldMeta[] | { values?: JiraFieldMeta[] }>("/rest/api/3/field");
+      const list = Array.isArray(all) ? all : (all.values ?? []);
+      resolved = mergeResolved(resolved, {
+        projectFieldId: pickFieldId(list, isHarvestProjectFieldName),
+        taskFieldId: resolved.taskFieldId ?? pickFieldId(list, isHarvestTaskFieldName),
+      });
+    } catch {
+      // Search-by-JQL below still works when the catalog omits the field.
     }
   }
-  cachedFields = { projectFieldId, taskFieldId };
-  return cachedFields;
+
+  return rememberFields(resolved);
 }
 
-export async function getHarvestBillingFields(): Promise<{ projectFieldId: string; taskFieldId: string | null }> {
-  const fields = await resolveCustomFields();
-  if (!fields.projectFieldId) {
-    throw new Error(
-      'Create a Jira custom field named "Harvest Billing Project" and set it on issues that should sync to Harvest.'
-    );
+function harvestCodeFromFieldBag(fieldBag: Record<string, unknown>, projectFieldId: string | null): string | null {
+  if (projectFieldId) {
+    return harvestProjectCodeFromField(customFieldValue(fieldBag[projectFieldId]));
   }
-  return { projectFieldId: fields.projectFieldId, taskFieldId: fields.taskFieldId };
+  for (const [key, value] of Object.entries(fieldBag)) {
+    if (!key.startsWith("customfield_")) continue;
+    const code = harvestProjectCodeFromField(customFieldValue(value));
+    if (code && isHarvestProjectCodeAllowed(code)) return code;
+  }
+  return null;
 }
 
-function issueFromSearch(issue: { id: string; key: string; fields?: Record<string, unknown> }, projectFieldId: string, taskFieldId: string | null): JiraIssueForSync {
+function issueFromFields(
+  issue: { id: string; key: string; fields?: Record<string, unknown> },
+  projectFieldId: string | null,
+  taskFieldId: string | null
+): JiraIssueForSync {
   const fieldBag = issue.fields ?? {};
   return {
     id: String(issue.id),
     key: issue.key,
     summary: typeof fieldBag.summary === "string" ? fieldBag.summary : "",
-    harvestProjectCode: harvestProjectCodeFromField(customFieldValue(fieldBag[projectFieldId])),
+    harvestProjectCode: harvestCodeFromFieldBag(fieldBag, projectFieldId),
     harvestTaskName: taskFieldId ? customFieldValue(fieldBag[taskFieldId]) : null,
   };
 }
 
-export async function searchIssuesWithHarvestBillingProject(limit = 50): Promise<JiraIssueForSync[]> {
-  const { projectFieldId, taskFieldId } = await getHarvestBillingFields();
-  const fieldList = ["summary", projectFieldId, ...(taskFieldId ? [taskFieldId] : [])];
-  const numericId = projectFieldId.match(/^customfield_(\d+)$/)?.[1];
-  const jql = numericId
-    ? `cf[${numericId}] is not EMPTY ORDER BY updated DESC`
-    : `"Harvest Billing Project" is not EMPTY ORDER BY updated DESC`;
-  const found: JiraIssueForSync[] = [];
-  let nextPageToken: string | undefined;
-  while (found.length < limit) {
-    const params = new URLSearchParams({
+function fieldsQuery(projectFieldId: string | null, taskFieldId: string | null): string {
+  if (!projectFieldId) return "*all";
+  const ids = ["summary", projectFieldId, taskFieldId].filter((value): value is string => Boolean(value));
+  return ids.join(",");
+}
+
+type JqlSearchPage = {
+  issues?: Array<{ id: string; key: string; fields?: Record<string, unknown> }>;
+  names?: Record<string, string>;
+  nextPageToken?: string;
+  isLast?: boolean;
+};
+
+async function searchJqlPage(jql: string, fields: string, nextPageToken: string | undefined, maxResults: number): Promise<JqlSearchPage> {
+  return jiraFetch<JqlSearchPage>("/rest/api/3/search/jql", {
+    method: "POST",
+    body: JSON.stringify({
       jql,
-      maxResults: String(Math.min(50, limit - found.length)),
-      fields: fieldList.join(","),
-    });
-    if (nextPageToken) params.set("nextPageToken", nextPageToken);
-    const data = await jiraFetch<{
-      issues?: Array<{ id: string; key: string; fields?: Record<string, unknown> }>;
-      nextPageToken?: string;
-      isLast?: boolean;
-    }>(`/rest/api/3/search/jql?${params}`);
-    const page = data.issues ?? [];
-    for (const issue of page) {
-      found.push(issueFromSearch(issue, projectFieldId, taskFieldId));
-      if (found.length >= limit) break;
+      maxResults,
+      fields: fields.split(",").map((field) => field.trim()).filter(Boolean),
+      expand: "names",
+      ...(nextPageToken ? { nextPageToken } : {}),
+    }),
+  });
+}
+
+export async function searchIssuesWithHarvestBillingProject(limit = 50): Promise<JiraIssueForSync[]> {
+  let resolved = await resolveCustomFields();
+  const clauses = jqlForHarvestProjectField(resolved.projectFieldId);
+  let lastError: Error | null = null;
+
+  for (const jql of clauses) {
+    try {
+      const found: JiraIssueForSync[] = [];
+      let nextPageToken: string | undefined;
+      const fields = fieldsQuery(resolved.projectFieldId, resolved.taskFieldId);
+      while (found.length < limit) {
+        const data = await searchJqlPage(jql, fields, nextPageToken, Math.min(50, limit - found.length));
+        resolved = rememberFields(
+          mergeResolved(resolved, {
+            projectFieldId: fieldIdFromNames(data.names, isHarvestProjectFieldName),
+            taskFieldId: fieldIdFromNames(data.names, isHarvestTaskFieldName),
+          })
+        );
+        const page = data.issues ?? [];
+        for (const issue of page) {
+          found.push(issueFromFields(issue, resolved.projectFieldId, resolved.taskFieldId));
+          if (found.length >= limit) break;
+        }
+        if (data.isLast || !data.nextPageToken || page.length === 0) break;
+        nextPageToken = data.nextPageToken;
+      }
+      return found;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
     }
-    if (data.isLast || !data.nextPageToken || page.length === 0) break;
-    nextPageToken = data.nextPageToken;
   }
-  return found;
+
+  throw lastError ?? new Error(MISSING_PROJECT_FIELD);
 }
 
 export async function getJiraIssueForSync(issueIdOrKey: string): Promise<JiraIssueForSync> {
-  const { projectFieldId, taskFieldId } = await resolveCustomFields();
-  const fieldIds = ["summary", ...(projectFieldId ? [projectFieldId] : []), ...(taskFieldId ? [taskFieldId] : [])];
+  let resolved = await resolveCustomFields();
+  const fields = fieldsQuery(resolved.projectFieldId, resolved.taskFieldId);
   const issue = await jiraFetch<{
     id: string;
     key: string;
     fields?: Record<string, unknown>;
-  }>(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}?fields=${encodeURIComponent(fieldIds.join(","))}`);
-  const fieldBag = issue.fields ?? {};
-  const fieldCode = projectFieldId ? customFieldValue(fieldBag[projectFieldId]) : null;
-  return {
-    id: String(issue.id),
-    key: issue.key,
-    summary: typeof fieldBag.summary === "string" ? fieldBag.summary : "",
-    harvestProjectCode: harvestProjectCodeFromField(fieldCode),
-    harvestTaskName: taskFieldId ? customFieldValue(fieldBag[taskFieldId]) : null,
-  };
+    names?: Record<string, string>;
+  }>(
+    `/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}?fields=${encodeURIComponent(fields)}&expand=names`
+  );
+  resolved = rememberFields(
+    mergeResolved(resolved, {
+      projectFieldId: fieldIdFromNames(issue.names, isHarvestProjectFieldName),
+      taskFieldId: fieldIdFromNames(issue.names, isHarvestTaskFieldName),
+    })
+  );
+  return issueFromFields(issue, resolved.projectFieldId, resolved.taskFieldId);
 }
 
 export async function getJiraUser(accountId: string): Promise<JiraUserForSync> {
@@ -193,15 +296,17 @@ export async function getJiraUser(accountId: string): Promise<JiraUserForSync> {
   };
 }
 
-export async function getJiraWorklog(issueIdOrKey: string, worklogId: string): Promise<JiraWorklogForSync> {
-  const worklog = await jiraFetch<{
+function mapWorklog(
+  worklog: {
     id: string;
     issueId?: string;
     timeSpentSeconds: number;
     started: string;
     comment?: unknown;
     author?: { accountId?: string };
-  }>(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/worklog/${encodeURIComponent(worklogId)}`);
+  },
+  issueIdOrKey: string
+): JiraWorklogForSync {
   return {
     id: String(worklog.id),
     issueId: worklog.issueId != null ? String(worklog.issueId) : String(issueIdOrKey),
@@ -212,10 +317,22 @@ export async function getJiraWorklog(issueIdOrKey: string, worklogId: string): P
   };
 }
 
-export async function listIssueWorklogs(issueIdOrKey: string): Promise<JiraWorklogForSync[]> {
+export async function getJiraWorklog(issueIdOrKey: string, worklogId: string): Promise<JiraWorklogForSync> {
+  const worklog = await jiraFetch<{
+    id: string;
+    issueId?: string;
+    timeSpentSeconds: number;
+    started: string;
+    comment?: unknown;
+    author?: { accountId?: string };
+  }>(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/worklog/${encodeURIComponent(worklogId)}`);
+  return mapWorklog(worklog, issueIdOrKey);
+}
+
+export async function listIssueWorklogs(issueIdOrKey: string): Promise<JiraWorklogList> {
   const all: JiraWorklogForSync[] = [];
   let startAt = 0;
-  for (;;) {
+  for (let pageNum = 0; pageNum < 50; pageNum += 1) {
     const data = await jiraFetch<{
       startAt?: number;
       maxResults?: number;
@@ -230,20 +347,20 @@ export async function listIssueWorklogs(issueIdOrKey: string): Promise<JiraWorkl
       }>;
     }>(`/rest/api/3/issue/${encodeURIComponent(issueIdOrKey)}/worklog?startAt=${startAt}&maxResults=100`);
     const page = data.worklogs ?? [];
-    for (const worklog of page) {
-      all.push({
-        id: String(worklog.id),
-        issueId: worklog.issueId != null ? String(worklog.issueId) : String(issueIdOrKey),
-        accountId: worklog.author?.accountId ?? null,
-        timeSpentSeconds: worklog.timeSpentSeconds,
-        started: worklog.started,
-        commentText: jiraCommentToText(worklog.comment),
-      });
-    }
+    const total = typeof data.total === "number" ? data.total : null;
+    for (const worklog of page) all.push(mapWorklog(worklog, issueIdOrKey));
     startAt += page.length;
-    if (!page.length || startAt >= (data.total ?? startAt)) break;
+    if (total != null && startAt >= total) {
+      return { worklogs: all, listedAll: true };
+    }
+    if (page.length === 0) {
+      return { worklogs: all, listedAll: total === 0 || (total == null && all.length === 0) };
+    }
+    if (page.length < 100 && total == null) {
+      return { worklogs: all, listedAll: true };
+    }
   }
-  return all;
+  return { worklogs: all, listedAll: false };
 }
 
 export function jiraBrowseUrl(issueKey: string): string {

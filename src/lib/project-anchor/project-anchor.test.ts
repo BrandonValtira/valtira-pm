@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { describe, it } from "node:test";
 import { harvestProjectCodeFromField, isHarvestProjectCodeAllowed } from "./config.ts";
+import {
+  fieldIdFromNames,
+  isHarvestProjectFieldName,
+  isHarvestTaskFieldName,
+  jqlForHarvestProjectField,
+} from "./jira-fields.ts";
 import { isLikelyDuplicateHarvestEntry, pickDuplicateCandidate } from "./duplicates.ts";
 import { extractTaskTag, findTaskAssignment, resolveRequestedTaskName, STANDARD_HARVEST_ROLES } from "./tasks.ts";
 import {
@@ -122,6 +128,31 @@ describe("task resolution", () => {
       "Technical Architect",
       "UI/UX Designer",
     ]);
+  });
+});
+
+describe("jira field matching", () => {
+  it("matches Harvest Billing Project names", () => {
+    assert.equal(isHarvestProjectFieldName("Harvest Billing Project"), true);
+    assert.equal(isHarvestProjectFieldName("harvest-project"), true);
+    assert.equal(isHarvestProjectFieldName("Harvest Billing Task"), false);
+    assert.equal(isHarvestTaskFieldName("Harvest Billing Task"), true);
+    assert.equal(isHarvestTaskFieldName("Harvest Billing Project"), false);
+  });
+
+  it("reads field ids from search expand=names", () => {
+    assert.equal(
+      fieldIdFromNames(
+        { summary: "Summary", customfield_10123: "Harvest Billing Project" },
+        isHarvestProjectFieldName
+      ),
+      "customfield_10123"
+    );
+  });
+
+  it("uses cf[] JQL when the field id is known", () => {
+    assert.deepEqual(jqlForHarvestProjectField("customfield_10123")[0], "cf[10123] is not EMPTY ORDER BY updated DESC");
+    assert.ok(jqlForHarvestProjectField(null)[0].includes("Harvest Billing Project"));
   });
 });
 
