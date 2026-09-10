@@ -83,6 +83,7 @@ Same Valtira PM Vercel project and GitHub repo. Cron: `*/15 * * * *` → `/api/c
 | Failed: no Harvest user | Email hidden in Jira, or emails differ — set a manual mapping |
 | Failed: no Harvest task | Add `[TaskName]`, issue task field, or user default task |
 | Double bill row | Harvest plugin also wrote time — **Remove extra Harvest entry** |
+| Locked row | Harvest timesheet is locked (month close or offboarded person). Project Anchor does not create, update, or delete that time. Unlock in Harvest, then Retry. |
 | Webhook 401 | HMAC secret mismatch, or add `?token=` for UI webhooks |
 
 ## Ownership

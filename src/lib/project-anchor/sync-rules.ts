@@ -22,7 +22,13 @@ export function worklogAlreadySynced(
   existing: { sync_status: string; hours: number; spent_date: string; notes: string | null },
   next: { hours: number; spentDate: string; notes: string }
 ): boolean {
-  if (existing.sync_status !== "synced" && existing.sync_status !== "duplicate") return false;
+  if (
+    existing.sync_status !== "synced" &&
+    existing.sync_status !== "duplicate" &&
+    existing.sync_status !== "locked"
+  ) {
+    return false;
+  }
   return (
     Number(existing.hours) === next.hours &&
     existing.spent_date === next.spentDate &&

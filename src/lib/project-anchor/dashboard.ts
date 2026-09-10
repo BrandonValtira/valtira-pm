@@ -38,6 +38,7 @@ export type TimeEntryDashboardData = {
     pending: number;
     failed: number;
     duplicate: number;
+    locked: number;
   };
   people: TimeEntryPerson[];
   roles: string[];
@@ -56,9 +57,9 @@ function displayNameFor(entry: ProjectAnchorEntry, maps: ProjectAnchorUserMap[])
 export async function loadTimeEntryDashboard(sessionUserId?: string | null): Promise<TimeEntryDashboardData> {
   const today = todayInTimeZone(CENTRAL_TZ);
   const [todayEntries, recent, failed, counts, syncState, userMaps] = await Promise.all([
-    listEntries({ spentDate: today, statuses: ["synced", "pending", "duplicate"], limit: 200 }),
+    listEntries({ spentDate: today, statuses: ["synced", "pending", "duplicate", "locked"], limit: 200 }),
     listEntries({ limit: 50 }),
-    listEntries({ statuses: ["failed", "duplicate"], limit: 50 }),
+    listEntries({ statuses: ["failed", "duplicate", "locked"], limit: 50 }),
     countByStatus(),
     getSyncState(),
     listUserMaps(),
@@ -137,6 +138,7 @@ export async function loadTimeEntryDashboard(sessionUserId?: string | null): Pro
       pending: counts.pending,
       failed: counts.failed,
       duplicate: counts.duplicate,
+      locked: counts.locked,
     },
     people,
     roles,

@@ -239,7 +239,7 @@ CREATE TABLE IF NOT EXISTS project_anchor_entries (
   spent_date DATE NOT NULL,
   notes TEXT,
   action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'deleted')),
-  sync_status TEXT NOT NULL CHECK (sync_status IN ('pending', 'synced', 'failed', 'ignored', 'deleted', 'duplicate')),
+  sync_status TEXT NOT NULL CHECK (sync_status IN ('pending', 'synced', 'failed', 'ignored', 'deleted', 'duplicate', 'locked')),
   last_synced_at TIMESTAMPTZ,
   last_retry_at TIMESTAMPTZ,
   retry_count INTEGER NOT NULL DEFAULT 0,

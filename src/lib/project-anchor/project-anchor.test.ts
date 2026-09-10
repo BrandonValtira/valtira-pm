@@ -4,6 +4,13 @@ import { describe, it } from "node:test";
 import { harvestProjectCodeFromField, isHarvestProjectCodeAllowed } from "./config.ts";
 import { isJiraApiNotFoundMessage, liveWorklogWriteDecision, shouldIngestWorklog, worklogAlreadySynced } from "./sync-rules.ts";
 import {
+  harvestEntryIsLocked,
+  harvestInactiveUserMessage,
+  harvestLockedMessage,
+  harvestUserIsInactive,
+  userDateHasLockedTime,
+} from "./harvest-lock.ts";
+import {
   fieldIdFromNames,
   isHarvestProjectFieldName,
   isHarvestTaskFieldName,
@@ -199,6 +206,43 @@ describe("worklog ingest rules", () => {
     assert.equal(worklogAlreadySynced(existing, { hours: 1.5, spentDate: "2026-09-09", notes: "CS-106" }), false);
     assert.equal(worklogAlreadySynced(existing, { hours: 0.75, spentDate: "2026-09-08", notes: "CS-106" }), false);
     assert.equal(worklogAlreadySynced(existing, { hours: 0.75, spentDate: "2026-09-09", notes: "CS-106 updated" }), false);
+  });
+
+  it("does not re-sync an unchanged locked worklog, but does when Jira hours change", () => {
+    const existing = { sync_status: "locked", hours: 0.75, spent_date: "2026-09-09", notes: "CS-106" };
+    assert.equal(worklogAlreadySynced(existing, { hours: 0.75, spentDate: "2026-09-09", notes: "CS-106" }), true);
+    assert.equal(worklogAlreadySynced(existing, { hours: 1.5, spentDate: "2026-09-09", notes: "CS-106" }), false);
+  });
+});
+
+describe("harvest lock skip rules", () => {
+  it("detects locked Harvest entries and locked days", () => {
+    assert.equal(harvestEntryIsLocked({ is_locked: true }), true);
+    assert.equal(harvestEntryIsLocked({ is_locked: false }), false);
+    assert.equal(harvestEntryIsLocked(null), false);
+    assert.equal(
+      userDateHasLockedTime([
+        { is_locked: false },
+        { is_locked: true, locked_reason: "Item Approved and Locked for this Time Period" },
+      ]),
+      true
+    );
+    assert.equal(userDateHasLockedTime([{ is_locked: false }]), false);
+  });
+
+  it("treats missing or inactive Harvest users as not writable", () => {
+    assert.equal(harvestUserIsInactive(null), true);
+    assert.equal(harvestUserIsInactive({ is_active: false }), true);
+    assert.equal(harvestUserIsInactive({ is_active: true }), false);
+  });
+
+  it("includes Harvest lock reason in the skip message", () => {
+    assert.equal(
+      harvestLockedMessage("Item Approved and Locked for this Time Period"),
+      "Harvest time is locked (Item Approved and Locked for this Time Period). Harvest was not changed."
+    );
+    assert.equal(harvestLockedMessage(null), "Harvest time is locked. Harvest was not changed.");
+    assert.equal(harvestInactiveUserMessage(), "Harvest user is inactive. Harvest was not changed.");
   });
 });
 

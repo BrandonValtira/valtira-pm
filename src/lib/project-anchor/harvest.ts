@@ -1,6 +1,7 @@
 import { resolveHarvestAccessForDirectory, resolveOrgHarvestAccess } from "@/lib/harvest-directory";
 import { IN_REQUEST_RETRIES } from "./config";
 import { harvestEntryIssueKey } from "./duplicates";
+import { firstLockedHarvestEntry, harvestEntryIsLocked } from "./harvest-lock";
 import { SyncError } from "./types";
 import type { HarvestTaskAssignment } from "./tasks";
 
@@ -62,6 +63,8 @@ export type HarvestTimeEntryWrite = {
   spent_date: string;
   hours: number;
   notes: string | null;
+  is_locked?: boolean;
+  locked_reason?: string | null;
   external_reference?: { id: string; permalink?: string } | null;
 };
 
@@ -73,6 +76,8 @@ export type HarvestTimeEntryListItem = {
   spent_date: string;
   hours: number;
   notes: string | null;
+  is_locked?: boolean;
+  locked_reason?: string | null;
   external_reference?: { id: string; permalink?: string } | null;
 };
 
@@ -218,6 +223,36 @@ export async function listHarvestTimeEntries(params: {
   return all;
 }
 
+function isHarvestNotFound(error: unknown): boolean {
+  return error instanceof SyncError && /Harvest API 404/.test(error.message);
+}
+
+export async function getHarvestTimeEntry(timeEntryId: number): Promise<HarvestTimeEntryListItem | null> {
+  try {
+    return await harvestRequest<HarvestTimeEntryListItem>(`/time_entries/${timeEntryId}`);
+  } catch (error) {
+    if (isHarvestNotFound(error)) return null;
+    throw error;
+  }
+}
+
+export async function getHarvestUser(userId: number): Promise<HarvestUserWithEmail | null> {
+  try {
+    return await harvestRequest<HarvestUserWithEmail>(`/users/${userId}`);
+  } catch (error) {
+    if (isHarvestNotFound(error)) return null;
+    throw error;
+  }
+}
+
+export async function findLockedHarvestEntryOnDate(
+  userId: number,
+  spentDate: string
+): Promise<HarvestTimeEntryListItem | null> {
+  const entries = await listHarvestTimeEntries({ userId, from: spentDate, to: spentDate });
+  return firstLockedHarvestEntry(entries);
+}
+
 export function harvestExternalReference(issueKey: string, permalink: string) {
   return {
     id: issueKey,
@@ -311,6 +346,7 @@ export async function deleteUnmappedHarvestEntriesForIssue(input: {
   for (const entry of entries) {
     if (input.keepHarvestIds.has(entry.id)) continue;
     if (harvestEntryIssueKey(entry) !== issueKey) continue;
+    if (harvestEntryIsLocked(entry)) continue;
     await deleteHarvestTimeEntry(entry.id);
     removed += 1;
   }

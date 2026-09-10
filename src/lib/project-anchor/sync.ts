@@ -3,11 +3,20 @@ import {
   createHarvestTimeEntry,
   deleteHarvestTimeEntry,
   findHarvestProjectByCode,
+  findLockedHarvestEntryOnDate,
+  getHarvestTimeEntry,
+  getHarvestUser,
   listHarvestTimeEntries,
   listProjectTaskAssignments,
   toDuplicateCandidate,
   updateHarvestTimeEntry,
 } from "./harvest";
+import {
+  harvestEntryIsLocked,
+  harvestInactiveUserMessage,
+  harvestLockedMessage,
+  harvestUserIsInactive,
+} from "./harvest-lock";
 import { getJiraIssueForSync, getJiraWorklogIfExists, jiraBrowseUrl } from "./jira";
 import { pickDuplicateCandidate } from "./duplicates";
 import {
@@ -60,9 +69,34 @@ async function markFailed(entry: ProjectAnchorEntry, error: unknown, incrementRe
   });
 }
 
+async function markLocked(
+  entry: ProjectAnchorEntry,
+  message: string,
+  extra?: {
+    harvest_user_id?: number | null;
+    harvest_time_entry_id?: number | null;
+    harvest_link_source?: ProjectAnchorEntry["harvest_link_source"];
+  }
+): Promise<ProjectAnchorEntry> {
+  return updateEntry(entry.id, {
+    sync_status: "locked",
+    last_error: message,
+    last_retry_at: new Date().toISOString(),
+    ...(extra?.harvest_user_id != null ? { harvest_user_id: extra.harvest_user_id } : {}),
+    ...(extra && "harvest_time_entry_id" in extra ? { harvest_time_entry_id: extra.harvest_time_entry_id } : {}),
+    ...(extra?.harvest_link_source ? { harvest_link_source: extra.harvest_link_source } : {}),
+  });
+}
+
 async function applyHarvestDelete(entry: ProjectAnchorEntry): Promise<ProjectAnchorEntry> {
   if (entry.harvest_time_entry_id) {
-    await deleteHarvestTimeEntry(entry.harvest_time_entry_id);
+    const existingHarvest = await getHarvestTimeEntry(entry.harvest_time_entry_id);
+    if (existingHarvest && harvestEntryIsLocked(existingHarvest)) {
+      return markLocked(entry, harvestLockedMessage(existingHarvest.locked_reason));
+    }
+    if (existingHarvest) {
+      await deleteHarvestTimeEntry(entry.harvest_time_entry_id);
+    }
   }
   await touchSyncState({ last_successful_harvest_at: new Date().toISOString(), last_harvest_error: null });
   return updateEntry(entry.id, {
@@ -99,6 +133,27 @@ async function applyHarvestWrite(entry: ProjectAnchorEntry): Promise<ProjectAnch
   }
 
   const userMap = await resolveUserMap(entry.jira_account_id);
+  const harvestUserId = userMap.harvest_user_id;
+  if (!harvestUserId) {
+    throw new SyncError("No Harvest user mapped", false);
+  }
+  const harvestUser = await getHarvestUser(harvestUserId);
+  if (harvestUserIsInactive(harvestUser)) {
+    return markLocked(entry, harvestInactiveUserMessage(), { harvest_user_id: harvestUserId });
+  }
+
+  let timeEntryId = entry.harvest_time_entry_id;
+  if (timeEntryId) {
+    const mappedHarvest = await getHarvestTimeEntry(timeEntryId);
+    if (mappedHarvest && harvestEntryIsLocked(mappedHarvest)) {
+      return markLocked(entry, harvestLockedMessage(mappedHarvest.locked_reason), {
+        harvest_user_id: harvestUserId,
+        harvest_time_entry_id: timeEntryId,
+      });
+    }
+    if (!mappedHarvest) timeEntryId = null;
+  }
+
   const assignments = await listProjectTaskAssignments(project.id);
   const requested = resolveRequestedTaskName({
     commentTag: extractTaskTag(entry.notes),
@@ -132,14 +187,13 @@ async function applyHarvestWrite(entry: ProjectAnchorEntry): Promise<ProjectAnch
   }
 
   const mappedIds = await listMappedHarvestTimeEntryIds();
-  if (entry.harvest_time_entry_id) mappedIds.delete(entry.harvest_time_entry_id);
+  if (timeEntryId) mappedIds.delete(timeEntryId);
 
-  let timeEntryId = entry.harvest_time_entry_id;
   let linkSource = entry.harvest_link_source;
   let duplicateId = entry.duplicate_harvest_time_entry_id;
 
   const existingHarvest = await listHarvestTimeEntries({
-    userId: userMap.harvest_user_id!,
+    userId: harvestUserId,
     from: entry.spent_date,
     to: entry.spent_date,
     projectId: project.id,
@@ -147,7 +201,7 @@ async function applyHarvestWrite(entry: ProjectAnchorEntry): Promise<ProjectAnch
   const duplicate = pickDuplicateCandidate(
     existingHarvest.map(toDuplicateCandidate),
     {
-      harvestUserId: userMap.harvest_user_id!,
+      harvestUserId,
       spentDate: entry.spent_date,
       hours: Number(entry.hours),
       projectId: project.id,
@@ -157,6 +211,14 @@ async function applyHarvestWrite(entry: ProjectAnchorEntry): Promise<ProjectAnch
   );
 
   if (!timeEntryId && duplicate) {
+    const lockedDup = existingHarvest.find((row) => row.id === duplicate.id);
+    if (lockedDup && harvestEntryIsLocked(lockedDup)) {
+      return markLocked(entry, harvestLockedMessage(lockedDup.locked_reason), {
+        harvest_user_id: harvestUserId,
+        harvest_time_entry_id: duplicate.id,
+        harvest_link_source: "adopted",
+      });
+    }
     timeEntryId = duplicate.id;
     linkSource = "adopted";
   } else if (timeEntryId && duplicate && duplicate.id !== timeEntryId) {
@@ -164,7 +226,7 @@ async function applyHarvestWrite(entry: ProjectAnchorEntry): Promise<ProjectAnch
   }
 
   const harvestWrite = {
-    userId: userMap.harvest_user_id!,
+    userId: harvestUserId,
     projectId: project.id,
     taskId: assignment.task.id,
     spentDate: entry.spent_date,
@@ -185,11 +247,13 @@ async function applyHarvestWrite(entry: ProjectAnchorEntry): Promise<ProjectAnch
     }
   }
 
-  if (!timeEntryId && duplicate) {
-    timeEntryId = duplicate.id;
-    linkSource = "adopted";
-    await updateHarvestTimeEntry(timeEntryId, harvestWrite);
-  } else if (!timeEntryId) {
+  if (!timeEntryId) {
+    const lockedDay = await findLockedHarvestEntryOnDate(harvestUserId, entry.spent_date);
+    if (lockedDay) {
+      return markLocked(entry, harvestLockedMessage(lockedDay.locked_reason), {
+        harvest_user_id: harvestUserId,
+      });
+    }
     const created = await createHarvestTimeEntry(harvestWrite);
     timeEntryId = created.id;
     linkSource = "created";
@@ -198,7 +262,7 @@ async function applyHarvestWrite(entry: ProjectAnchorEntry): Promise<ProjectAnch
   await touchSyncState({ last_successful_harvest_at: new Date().toISOString(), last_harvest_error: null });
 
   const saved = {
-    harvest_user_id: userMap.harvest_user_id,
+    harvest_user_id: harvestUserId,
     harvest_project_id: project.id,
     harvest_project_code: project.code ?? code,
     harvest_project_name: project.name,
@@ -221,8 +285,14 @@ async function applyHarvestWrite(entry: ProjectAnchorEntry): Promise<ProjectAnch
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (linkSource === "adopted" && /duplicate|unique/i.test(message)) {
+      const lockedDay = await findLockedHarvestEntryOnDate(harvestUserId, entry.spent_date);
+      if (lockedDay) {
+        return markLocked(entry, harvestLockedMessage(lockedDay.locked_reason), {
+          harvest_user_id: harvestUserId,
+        });
+      }
       const created = await createHarvestTimeEntry({
-        userId: userMap.harvest_user_id!,
+        userId: harvestUserId,
         projectId: project.id,
         taskId: assignment.task.id,
         spentDate: entry.spent_date,
@@ -257,7 +327,7 @@ async function finalizeDeletedWorklog(worklogId: string): Promise<{
 }> {
   const existing = await getEntryByWorklogId(worklogId);
   if (!existing) return { ignored: true, entry: null };
-  if (existing.sync_status === "deleted" && existing.action === "deleted") {
+  if (existing.action === "deleted" && (existing.sync_status === "deleted" || existing.sync_status === "locked")) {
     return { ignored: true, entry: existing };
   }
   const pendingDelete = await updateEntry(existing.id, {
@@ -369,7 +439,13 @@ export async function removeDuplicateHarvestEntry(entryId: string): Promise<Proj
   if (entry.duplicate_harvest_time_entry_id === entry.harvest_time_entry_id) {
     throw new Error("Refusing to delete the mapped Harvest entry.");
   }
-  await deleteHarvestTimeEntry(entry.duplicate_harvest_time_entry_id);
+  const extra = await getHarvestTimeEntry(entry.duplicate_harvest_time_entry_id);
+  if (extra && harvestEntryIsLocked(extra)) {
+    throw new Error(harvestLockedMessage(extra.locked_reason));
+  }
+  if (extra) {
+    await deleteHarvestTimeEntry(entry.duplicate_harvest_time_entry_id);
+  }
   await touchSyncState({ last_successful_harvest_at: new Date().toISOString() });
   return updateEntry(entry.id, {
     duplicate_harvest_time_entry_id: null,

@@ -17,7 +17,7 @@ export async function pollManagedJiraWorklogs(): Promise<{ pulled: number; ignor
   try {
     issues = await searchIssuesWithHarvestBillingProject(50);
     const seenKeys = new Set(issues.map((issue) => issue.key));
-    const tracked = await listEntries({ statuses: ["synced", "pending", "duplicate", "failed"], limit: 200 });
+    const tracked = await listEntries({ statuses: ["synced", "pending", "duplicate", "failed", "locked"], limit: 200 });
     for (const entry of tracked) {
       if (seenKeys.has(entry.jira_issue_key)) continue;
       try {

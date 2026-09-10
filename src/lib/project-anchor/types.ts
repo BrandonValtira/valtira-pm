@@ -1,5 +1,12 @@
 export type SyncAction = "created" | "updated" | "deleted";
-export type SyncStatus = "pending" | "synced" | "failed" | "ignored" | "deleted" | "duplicate";
+export type SyncStatus =
+  | "pending"
+  | "synced"
+  | "failed"
+  | "ignored"
+  | "deleted"
+  | "duplicate"
+  | "locked";
 export type HarvestLinkSource = "created" | "adopted";
 export type MappedBy = "email_auto" | "manual";
 

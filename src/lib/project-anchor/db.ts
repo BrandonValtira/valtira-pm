@@ -210,10 +210,16 @@ export async function getSyncState(): Promise<ProjectAnchorSyncState | null> {
   };
 }
 
-export async function countByStatus(): Promise<{ pending: number; failed: number; duplicate: number; synced: number }> {
+export async function countByStatus(): Promise<{
+  pending: number;
+  failed: number;
+  duplicate: number;
+  synced: number;
+  locked: number;
+}> {
   const supabase = createAdminClient();
-  const statuses = ["pending", "failed", "duplicate", "synced"] as const;
-  const counts = { pending: 0, failed: 0, duplicate: 0, synced: 0 };
+  const statuses = ["pending", "failed", "duplicate", "synced", "locked"] as const;
+  const counts = { pending: 0, failed: 0, duplicate: 0, synced: 0, locked: 0 };
   await Promise.all(
     statuses.map(async (status) => {
       const { count } = await supabase

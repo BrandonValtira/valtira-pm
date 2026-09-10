@@ -31,6 +31,7 @@ function statusLabel(status: string): string {
   if (status === "duplicate") return "Double bill";
   if (status === "deleted") return "Deleted";
   if (status === "ignored") return "Ignored";
+  if (status === "locked") return "Locked";
   return status;
 }
 
@@ -44,7 +45,9 @@ function StatusPill({ status }: { status: string }) {
           ? "bg-orange-50 text-orange-800"
           : status === "failed"
             ? "bg-red-50 text-red-800"
-            : "bg-neutral-100 text-neutral-700";
+            : status === "locked"
+              ? "bg-slate-100 text-slate-800"
+              : "bg-neutral-100 text-neutral-700";
   return <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{statusLabel(status)}</span>;
 }
 
@@ -61,7 +64,7 @@ export function TimeEntryClient({ initial }: { initial: TimeEntryDashboardData }
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [expandedPerson, setExpandedPerson] = useState<string | null>(null);
-  const failedCount = data.status.failed + data.status.duplicate;
+  const failedCount = data.status.failed + data.status.duplicate + data.status.locked;
   const teamHours = useMemo(
     () => data.todayHours.reduce((sum, row) => sum + row.hours, 0),
     [data.todayHours]
@@ -165,6 +168,7 @@ export function TimeEntryClient({ initial }: { initial: TimeEntryDashboardData }
       { label: "Last successful sync", value: formatWhen(data.status.lastSuccessfulSync) },
       { label: "Pending", value: String(data.status.pending) },
       { label: "Failed", value: String(data.status.failed) },
+      { label: "Locked", value: String(data.status.locked) },
       { label: "Possible double bills", value: String(data.status.duplicate) },
     ],
     [data.status]
@@ -270,11 +274,11 @@ export function TimeEntryClient({ initial }: { initial: TimeEntryDashboardData }
       <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-medium text-neutral-900">Failed Synchronizations</h2>
         <p className="mt-1 text-sm text-neutral-600">
-          Temporary API failures retry automatically. Possible double bills appear here if the Harvest Jira plugin also wrote time.
+          Temporary API failures retry automatically. Locked Harvest timesheets are skipped and do not retry until you unlock them and use Retry. Possible double bills appear here if the Harvest Jira plugin also wrote time.
         </p>
         {data.failed.length === 0 ? (
           <p className="mt-4 text-sm text-neutral-500">
-            {failedCount === 0 ? "No failed or duplicate entries." : "No rows to display."}
+            {failedCount === 0 ? "No failed, locked, or duplicate entries." : "No rows to display."}
           </p>
         ) : (
           <div className="mt-4 overflow-x-auto">
@@ -285,6 +289,7 @@ export function TimeEntryClient({ initial }: { initial: TimeEntryDashboardData }
                   <th className="px-2 py-2 font-medium">Issue</th>
                   <th className="px-2 py-2 font-medium">Worklog</th>
                   <th className="px-2 py-2 font-medium">Harvest project</th>
+                  <th className="px-2 py-2 font-medium">Status</th>
                   <th className="px-2 py-2 font-medium">Error</th>
                   <th className="px-2 py-2 font-medium">Last retry</th>
                   <th className="px-2 py-2 font-medium">Tries</th>
@@ -298,6 +303,9 @@ export function TimeEntryClient({ initial }: { initial: TimeEntryDashboardData }
                     <td className="px-2 py-2">{entry.jira_issue_key}</td>
                     <td className="px-2 py-2 font-mono text-xs">{entry.jira_worklog_id}</td>
                     <td className="px-2 py-2">{entry.harvest_project_code || "—"}</td>
+                    <td className="px-2 py-2">
+                      <StatusPill status={entry.sync_status} />
+                    </td>
                     <td className="max-w-xs px-2 py-2 text-xs text-neutral-700">{entry.last_error || "—"}</td>
                     <td className="whitespace-nowrap px-2 py-2">{formatWhen(entry.last_retry_at)}</td>
                     <td className="px-2 py-2">{entry.retry_count}</td>
