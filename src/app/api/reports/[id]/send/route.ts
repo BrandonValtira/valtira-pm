@@ -1,5 +1,10 @@
 import { auth } from "@/auth";
-import { isOutdatedOutgoingReport, LEGACY_REPORT_SEND_ERROR } from "@/lib/report-config";
+import {
+  isOutdatedOutgoingReport,
+  LEGACY_REPORT_SEND_ERROR,
+  normalizeReportConfig,
+  stampReportConfig,
+} from "@/lib/report-config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendProjectReportToClients } from "@/lib/send-project-report";
 import { NextResponse } from "next/server";
@@ -43,6 +48,19 @@ export async function POST(
   const toAddresses = emails.map((e: unknown) => String(e).trim().toLowerCase()).filter(Boolean);
   if (toAddresses.length === 0) {
     return NextResponse.json({ error: "At least one recipient email is required" }, { status: 400 });
+  }
+
+  if (typeof body.additionalInfoText === "string") {
+    const nextConfig = stampReportConfig({
+      ...normalizeReportConfig(report.report_config, report.report_format),
+      additionalInfoText: body.additionalInfoText.slice(0, 4000),
+    });
+    const { error: saveError } = await supabase
+      .from("reports")
+      .update({ report_config: nextConfig, updated_at: new Date().toISOString() })
+      .eq("id", reportId);
+    if (saveError) return NextResponse.json({ error: saveError.message }, { status: 500 });
+    report.report_config = nextConfig;
   }
 
   const projectForSend = { ...project, client_emails: toAddresses };

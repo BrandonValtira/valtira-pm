@@ -39,7 +39,7 @@ export async function sendReportApprovalRequestEmail(
     subject: `You have a new report to approve for ${projectName}`,
     html: `
       <p>You have a new report to approve for <strong>${projectName}</strong>.</p>
-      <p>Go to the Valtira PM application to review.</p>
+      <p>Open it in Valtira PM to review. If additional information is included, you can edit those notes before you approve and send.</p>
       <p><a href="${reviewUrl}" style="display:inline-block;background:#16a34a;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:600;">Review report</a></p>
     `,
   });

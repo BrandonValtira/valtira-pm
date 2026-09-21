@@ -310,7 +310,13 @@ function HarvestProjectBudgetCards({
 
 /** Budget Allocation report: % breakdown by ticket project + per-project task tables */
 /** Single report content block (used in list and in modal) */
-function ReportContent({ report }: { report: Report }) {
+function ReportContent({
+  report,
+  onAdditionalInfoChange,
+}: {
+  report: Report;
+  onAdditionalInfoChange?: (text: string) => void;
+}) {
   const snapshot = report.harvest_data_snapshot;
   const config = normalizeReportConfig(report.report_config, report.report_format);
   const isPlaceholder = !!(snapshot && "_placeholder" in snapshot && snapshot._placeholder);
@@ -416,10 +422,27 @@ function ReportContent({ report }: { report: Report }) {
         </div>
       )}
 
-      {config.components.additionalInfo && config.additionalInfoText.trim() && (
+      {config.components.additionalInfo && (onAdditionalInfoChange || config.additionalInfoText.trim()) && (
         <div className="mt-5 rounded-lg border border-[#E8E2DA] bg-white p-3">
           <h4 className="text-sm font-medium text-neutral-900">Additional information</h4>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-800">{config.additionalInfoText.trim()}</p>
+          {onAdditionalInfoChange ? (
+            <>
+              <p className="mt-1 text-xs text-neutral-600">
+                Included in the client email. Edit as needed before sending.
+              </p>
+              <textarea
+                id="report-approval-additional-info"
+                value={config.additionalInfoText}
+                onChange={(e) => onAdditionalInfoChange(e.target.value.slice(0, 4000))}
+                rows={5}
+                placeholder="Risks, notes, or context for the client…"
+                className="mt-2 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
+              />
+              <p className="mt-1 text-right text-xs text-neutral-500">{config.additionalInfoText.length}/4000</p>
+            </>
+          ) : (
+            <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-800">{config.additionalInfoText.trim()}</p>
+          )}
         </div>
       )}
 
@@ -812,34 +835,54 @@ export function ReportSection({
     setSendToEmails((prev) => prev.filter((_, idx) => idx !== i));
   }
 
+  function updateModalAdditionalInfo(text: string) {
+    setModalReport((current) => {
+      if (!current) return current;
+      const config = normalizeReportConfig(current.report_config, current.report_format);
+      return { ...current, report_config: { ...config, additionalInfoText: text } };
+    });
+  }
+
+  async function sendModalReport(emails: string[]) {
+    if (!modalReport) return false;
+    if (isOutdatedOutgoingReport(modalReport.report_config, modalReport.status)) {
+      setError("This report is outdated and can no longer be sent. Delete it and generate a new one.");
+      return false;
+    }
+    const config = normalizeReportConfig(modalReport.report_config, modalReport.report_format);
+    if (config.components.additionalInfo) {
+      setReports((prev) =>
+        prev.map((r) => (r.id === modalReport.id ? { ...r, report_config: config } : r))
+      );
+    }
+    const res = await fetch(`/api/reports/${modalReport.id}/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        emails,
+        additionalInfoText: config.components.additionalInfo ? config.additionalInfoText : undefined,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(data.error || res.statusText || "Failed to send");
+      return false;
+    }
+    setReports((prev) =>
+      prev.map((r) => (r.id === modalReport.id ? { ...r, status: "sent" as const } : r))
+    );
+    setModalReport(null);
+    router.refresh();
+    return true;
+  }
+
   async function handleSendReport() {
     const emails = sendToEmails.map((e) => e.trim()).filter(Boolean);
     if (emails.length === 0) return;
-    if (!modalReport) return;
-    if (isOutdatedOutgoingReport(modalReport.report_config, modalReport.status)) {
-      setError("This report is outdated and can no longer be sent. Delete it and generate a new one.");
-      return;
-    }
     setSending(true);
     setError("");
     try {
-      const res = await fetch(`/api/reports/${modalReport.id}/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emails }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error || res.statusText || "Failed to send");
-        return;
-      }
-      setReports((prev) =>
-        prev.map((r) =>
-          r.id === modalReport.id ? { ...r, status: "sent" as const } : r
-        )
-      );
-      setModalReport(null);
-      router.refresh();
+      await sendModalReport(emails);
     } finally {
       setSending(false);
     }
@@ -1083,7 +1126,15 @@ export function ReportSection({
               </button>
             </div>
             <div className="mt-4">
-              <ReportContent report={modalReport} />
+              <ReportContent
+                report={modalReport}
+                onAdditionalInfoChange={
+                  !modalIsOutdatedOutgoing &&
+                  (modalReport.status === "pending_approval" || modalReport.status === "draft")
+                    ? updateModalAdditionalInfo
+                    : undefined
+                }
+              />
             </div>
             {modalReport.status === "pending_approval" && !modalIsOutdatedOutgoing && (
               <div className="mt-6 flex flex-wrap gap-3 border-t border-neutral-200 pt-4">
@@ -1097,21 +1148,7 @@ export function ReportSection({
                     setSending(true);
                     setError("");
                     try {
-                      const res = await fetch(`/api/reports/${modalReport.id}/send`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ emails: clientEmails }),
-                      });
-                      const data = await res.json().catch(() => ({}));
-                      if (!res.ok) {
-                        setError(data.error || "Failed to send");
-                        return;
-                      }
-                      setReports((prev) =>
-                        prev.map((r) => (r.id === modalReport.id ? { ...r, status: "sent" as const } : r))
-                      );
-                      setModalReport(null);
-                      router.refresh();
+                      await sendModalReport(clientEmails);
                     } finally {
                       setSending(false);
                     }
