@@ -13,7 +13,7 @@
     "build": "npm run generate-icons && next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --experimental-strip-types --test src/lib/project-anchor/project-anchor.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/project-anchor/project-anchor.test.ts src/lib/central-time.test.ts",
     "deploy": "npx vercel --prod --yes",
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",

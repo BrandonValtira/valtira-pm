@@ -1,6 +1,9 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 import type { ReportPeriodType } from "@/lib/report-config";
 import { getHarvestBiweekBounds, getHarvestWeekBounds } from "@/lib/report-week";
+import { getBusinessDayOfMonthInCentral, getCentralDateTime } from "@/lib/central-time";
+
+export { getBusinessDayOfMonthInCentral, getCentralDateTime };
 
 const REMINDER_MIN_HOURS_AFTER_REQUEST = 24;
 const REMINDER_MIN_HOURS_BETWEEN = 72;
@@ -8,6 +11,42 @@ export const MAX_REMINDERS_PER_WEEK = 2;
 
 const APPROVAL_RETRY_MIN_HOURS = 12;
 export const MAX_APPROVAL_EMAIL_ATTEMPTS = 3;
+
+export function normalizeAutomationTime(hhmm: string): string {
+  const parts = (hhmm ?? "").trim().split(":");
+  const h = Math.min(23, Math.max(0, parseInt(parts[0], 10) || 0));
+  const m = Math.min(59, Math.max(0, parseInt(parts[1], 10) || 0));
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+}
+
+export function isAutomationDue(
+  automation: {
+    period_type: string;
+    day_of_week: number | null;
+    day_of_month: number | null;
+    time_utc: string;
+    created_at?: string;
+  },
+  timeHm: string,
+  dayOfWeek: number,
+  businessDayOfMonth: number
+): boolean {
+  const scheduled = normalizeAutomationTime((automation.time_utc ?? "").slice(0, 5));
+  const [schedH, schedM] = scheduled.split(":").map((n) => parseInt(n, 10));
+  const [currH, currM] = timeHm.split(":").map((n) => parseInt(n, 10));
+  if (schedH !== currH) return false;
+  if (schedM !== 0 && schedM !== currM) return false;
+  if (automation.period_type === "week") return (automation.day_of_week ?? 0) === dayOfWeek;
+  if (automation.period_type === "biweek") {
+    if ((automation.day_of_week ?? 0) !== dayOfWeek) return false;
+    return automation.created_at ? isBiweekSendWeek(automation.created_at) : true;
+  }
+  if (automation.period_type === "month") {
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+    return isWeekday && (automation.day_of_month ?? 1) === businessDayOfMonth;
+  }
+  return false;
+}
 
 function getLastMonthBounds(): { start: string; end: string } {
   const now = new Date();

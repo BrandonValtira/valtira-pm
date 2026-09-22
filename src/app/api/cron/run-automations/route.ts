@@ -17,8 +17,9 @@ import {
   canRetryApprovalEmail,
   canSendReportReminder,
   findExistingReportForPeriod,
+  getCentralDateTime,
   getCentralWeekStartKey,
-  isBiweekSendWeek,
+  isAutomationDue,
   resolveReportPeriodBounds,
 } from "@/lib/report-automation";
 import { NextResponse } from "next/server";
@@ -69,44 +70,6 @@ async function getApprovalRecipientEmails(
   return [owner.email.trim().toLowerCase()];
 }
 
-/** Normalize HH:MM so "9:00" and "09:00" match. */
-function normalizeTime(hhmm: string): string {
-  const parts = (hhmm ?? "").trim().split(":");
-  const h = Math.min(23, Math.max(0, parseInt(parts[0], 10) || 0));
-  const m = Math.min(59, Math.max(0, parseInt(parts[1], 10) || 0));
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
-}
-
-function isAutomationDue(
-  automation: {
-    period_type: string;
-    day_of_week: number | null;
-    day_of_month: number | null;
-    time_utc: string;
-    created_at?: string;
-  },
-  timeUtc: string,
-  dayOfWeek: number,
-  businessDayOfMonth: number
-): boolean {
-  const scheduled = normalizeTime((automation.time_utc ?? "").slice(0, 5));
-  const [schedH, schedM] = scheduled.split(":").map((n) => parseInt(n, 10));
-  const [currH, currM] = timeUtc.split(":").map((n) => parseInt(n, 10));
-  // Hourly cron fires at :00; match the scheduled hour (and minute when not on the hour).
-  if (schedH !== currH) return false;
-  if (schedM !== 0 && !(schedM === currM)) return false;
-  if (automation.period_type === "week") return (automation.day_of_week ?? 0) === dayOfWeek;
-  if (automation.period_type === "biweek") {
-    if ((automation.day_of_week ?? 0) !== dayOfWeek) return false;
-    return automation.created_at ? isBiweekSendWeek(automation.created_at) : true;
-  }
-  if (automation.period_type === "month") {
-    // Only fire on weekdays — otherwise Sat/Sun keep the same business-day count as Friday.
-    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
-    return isWeekday && (automation.day_of_month ?? 1) === businessDayOfMonth;
-  }
-  return false;
-}
 
 async function markApprovalEmailSent(
   supabase: ReturnType<typeof createAdminClient>,
@@ -119,48 +82,6 @@ async function markApprovalEmailSent(
     .eq("id", reportId);
 }
 
-/** Count weekdays (1–5) from the 1st through the given day in Central. */
-function getBusinessDayOfMonthInCentral(year: number, month: number, day: number): number {
-  let count = 0;
-  for (let d = 1; d <= day; d++) {
-    const date = new Date(Date.UTC(year, month - 1, d, 12, 0, 0));
-    const w = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", weekday: "short" }).format(date);
-    if (w !== "Sat" && w !== "Sun") count++;
-  }
-  return count;
-}
-
-/** Current time in Central (America/Chicago). Monthly automations use business day (1st, 2nd, 3rd… weekday). */
-function getCentralNow(): { timeUtc: string; dayOfWeek: number; dayOfMonth: number; businessDayOfMonth: number; centralYear: number; centralMonth: number; centralDay: number } {
-  const now = new Date();
-  const timeFormatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Chicago",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const dateFormatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Chicago",
-    weekday: "short",
-    day: "numeric",
-    month: "numeric",
-    year: "numeric",
-  });
-  const timeParts = timeFormatter.formatToParts(now);
-  const dateParts = dateFormatter.formatToParts(now);
-  const get = (parts: Intl.DateTimeFormatPart[], type: string) => parts.find((p) => p.type === type)?.value ?? "0";
-  const hour = get(timeParts, "hour").padStart(2, "0");
-  const minute = get(timeParts, "minute").padStart(2, "0");
-  const timeUtc = `${hour}:${minute}`;
-  const dayNames: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  const dayOfWeek = dayNames[get(dateParts, "weekday")] ?? 0;
-  const centralDay = parseInt(get(dateParts, "day"), 10) || 1;
-  const centralMonth = parseInt(get(dateParts, "month"), 10) || 1;
-  const centralYear = parseInt(get(dateParts, "year"), 10) || now.getFullYear();
-  const dayOfMonth = Math.min(28, centralDay);
-  const businessDayOfMonth = getBusinessDayOfMonthInCentral(centralYear, centralMonth, centralDay);
-  return { timeUtc, dayOfWeek, dayOfMonth, businessDayOfMonth, centralYear, centralMonth, centralDay };
-}
 
 /**
  * Run report automations: create reports for due automations (requires_approval → pending_approval + email),
@@ -179,7 +100,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized. Use CRON_SECRET or log in and add ?test=1 to test." }, { status: 401 });
   }
   const supabase = createAdminClient();
-  const { timeUtc, dayOfWeek, businessDayOfMonth } = getCentralNow();
+  const { timeHm: timeUtc, dayOfWeek, businessDayOfMonth } = getCentralDateTime();
 
   let due: {
     id: string;
@@ -231,6 +152,14 @@ export async function GET(req: Request) {
     due = isTestRun
       ? (automations ?? [])
       : (automations ?? []).filter((a) => isAutomationDue(a, timeUtc, dayOfWeek, businessDayOfMonth));
+    console.info("[cron/run-automations] tick", {
+      timeCentral: timeUtc,
+      dayOfWeek,
+      businessDayOfMonth,
+      active: automations?.length ?? 0,
+      due: due.length,
+      dueIds: due.map((a) => a.id),
+    });
   }
 
   const results: {

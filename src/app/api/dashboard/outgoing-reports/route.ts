@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { getCentralDateTime } from "@/lib/report-automation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 
@@ -33,24 +34,13 @@ function getNextRunCentral(
   const hour = Math.min(23, Math.max(0, h ?? 9));
   const minute = Math.min(59, Math.max(0, m ?? 0));
 
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: CENTRAL_TZ,
-    weekday: "short",
-    day: "numeric",
-    month: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(now);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "0";
-  const currentDow = DAY_NAMES.indexOf(get("weekday"));
-  const currentDay = parseInt(get("day"), 10) || 1;
-  const currentMonth = parseInt(get("month"), 10) || 1;
-  const currentYear = parseInt(get("year"), 10) || now.getFullYear();
-  const currentHour = parseInt(get("hour"), 10) || 0;
-  const currentMin = parseInt(get("minute"), 10) || 0;
+  const central = getCentralDateTime();
+  const currentDow = central.dayOfWeek;
+  const currentDay = central.day;
+  const currentMonth = central.month;
+  const currentYear = central.year;
+  const currentHour = central.hour;
+  const currentMin = central.minute;
 
   let y: number;
   let mo: number;
