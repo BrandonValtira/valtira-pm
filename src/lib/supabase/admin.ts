@@ -10,5 +10,11 @@ export function createAdminClient() {
   if (!url || !key) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
   }
-  return createClient(url, key);
+  return createClient(url, key, {
+    global: {
+      // Next.js caches fetch() GET requests. Without this, the hourly cron keeps
+      // an old automation list and never sees schedules added later.
+      fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }),
+    },
+  });
 }

@@ -1,7 +1,7 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 import type { ReportPeriodType } from "@/lib/report-config";
-import { getHarvestBiweekBounds, getHarvestWeekBounds } from "@/lib/report-week";
-import { getBusinessDayOfMonthInCentral, getCentralDateTime } from "@/lib/central-time";
+import { getHarvestBiweekBounds, getHarvestWeekBounds } from "./report-week.ts";
+import { getBusinessDayOfMonthInCentral, getCentralDateTime } from "./central-time.ts";
 
 export { getBusinessDayOfMonthInCentral, getCentralDateTime };
 
@@ -29,13 +29,16 @@ export function isAutomationDue(
   },
   timeHm: string,
   dayOfWeek: number,
-  businessDayOfMonth: number
+  businessDayOfMonth: number,
+  options?: { catchUp?: boolean }
 ): boolean {
   const scheduled = normalizeAutomationTime((automation.time_utc ?? "").slice(0, 5));
   const [schedH, schedM] = scheduled.split(":").map((n) => parseInt(n, 10));
   const [currH, currM] = timeHm.split(":").map((n) => parseInt(n, 10));
-  if (schedH !== currH) return false;
-  if (schedM !== 0 && schedM !== currM) return false;
+  const onScheduledHour = schedH === currH && (schedM === 0 || schedM === currM);
+  const missedEarlierToday =
+    options?.catchUp === true && (schedH < currH || (schedH === currH && schedM <= currM));
+  if (!onScheduledHour && !missedEarlierToday) return false;
   if (automation.period_type === "week") return (automation.day_of_week ?? 0) === dayOfWeek;
   if (automation.period_type === "biweek") {
     if ((automation.day_of_week ?? 0) !== dayOfWeek) return false;

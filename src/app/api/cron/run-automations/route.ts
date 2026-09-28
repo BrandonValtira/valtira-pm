@@ -151,12 +151,15 @@ export async function GET(req: Request) {
 
     due = isTestRun
       ? (automations ?? [])
-      : (automations ?? []).filter((a) => isAutomationDue(a, timeUtc, dayOfWeek, businessDayOfMonth));
+      : (automations ?? []).filter((a) =>
+          isAutomationDue(a, timeUtc, dayOfWeek, businessDayOfMonth, { catchUp: true })
+        );
     console.info("[cron/run-automations] tick", {
       timeCentral: timeUtc,
       dayOfWeek,
       businessDayOfMonth,
       active: automations?.length ?? 0,
+      activeSchedules: (automations ?? []).map((a) => `${a.id.slice(0, 8)}@${(a.time_utc ?? "").slice(0, 5)}`),
       due: due.length,
       dueIds: due.map((a) => a.id),
     });
