@@ -30,6 +30,7 @@ export async function PATCH(
       .from("users")
       .update({ status: "revoked", updated_at: new Date().toISOString() })
       .eq("email", email)
+      .eq("status", "invited")
       .neq("role", "super_admin");
   }
 

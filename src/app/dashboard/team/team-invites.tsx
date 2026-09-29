@@ -86,6 +86,23 @@ export function TeamInvites({
     }
   }
 
+  async function saveRole(userId: string, role: "pm" | "super_admin") {
+    setError("");
+    setLoading(`role-${userId}`);
+    try {
+      const res = await fetch(`/api/team/members/${userId}/role`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) setError(data.error || "Failed to save role");
+      else router.refresh();
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function revokeMember(userId: string) {
     if (!confirm("Revoke this person’s access? They won’t be able to sign in until invited again.")) return;
     setError("");
@@ -196,45 +213,20 @@ export function TeamInvites({
       <div className="rounded-xl border border-neutral-200 bg-white p-6">
         <h2 className="text-sm font-medium text-neutral-900">Team members</h2>
         <p className="mt-1 text-sm text-neutral-700">
-          Someone is <strong>Active</strong> only after they open the invite link and sign in with Google, and Google
-          returns the <strong>same email address</strong> the invite was sent to. Until then they stay under{" "}
-          <strong>Pending invites</strong> above (or use <strong>Resend</strong> if the link expired).
+          Active members can be a Project Manager or Super Admin. Change the role and save it whenever you need to.
+          Someone stays invited until they open the invite link and sign in with the same Google email.
         </p>
         {users.length > 0 ? (
           <ul className="mt-4 divide-y divide-neutral-100">
             {users.map((u) => (
-              <li key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-3 first:pt-0">
-                <div className="flex min-w-0 flex-1 items-center gap-2">
-                  <div className="min-w-0">
-                    <span className="font-medium text-neutral-900">{u.name || u.email}</span>
-                    <span className="ml-2 text-sm text-neutral-700">{u.email}</span>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600">
-                    {u.role === "super_admin" ? "Super Admin" : "Project Manager"}
-                  </span>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {u.status === "invited" ? (
-                    <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-900">
-                      Invited — sign in pending
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-                      Active
-                    </span>
-                  )}
-                  {u.status === "active" && u.id !== currentUserId && (
-                    <button
-                      type="button"
-                      onClick={() => revokeMember(u.id)}
-                      disabled={!!loading}
-                      className="text-sm text-red-600 underline hover:text-red-800 disabled:opacity-50"
-                    >
-                      {loading === `revoke-member-${u.id}` ? "Revoking…" : "Revoke"}
-                    </button>
-                  )}
-                </div>
-              </li>
+              <MemberRow
+                key={`${u.id}-${u.role}`}
+                user={u}
+                isSelf={u.id === currentUserId}
+                loading={loading}
+                onSaveRole={saveRole}
+                onRevoke={revokeMember}
+              />
             ))}
           </ul>
         ) : (
@@ -242,5 +234,98 @@ export function TeamInvites({
         )}
       </div>
     </div>
+  );
+}
+
+function MemberRow({
+  user,
+  isSelf,
+  loading,
+  onSaveRole,
+  onRevoke,
+}: {
+  user: User;
+  isSelf: boolean;
+  loading: string | null;
+  onSaveRole: (userId: string, role: "pm" | "super_admin") => void;
+  onRevoke: (userId: string) => void;
+}) {
+  const savedRole: "pm" | "super_admin" = user.role === "super_admin" ? "super_admin" : "pm";
+  const [role, setRole] = useState<"pm" | "super_admin">(savedRole);
+  const canEditRole = user.status === "active" && !isSelf;
+  const saving = loading === `role-${user.id}`;
+
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0">
+      <div className="min-w-0">
+        <span className="font-medium text-neutral-900">{user.name || user.email}</span>
+        {isSelf && <span className="ml-2 text-xs text-neutral-500">You</span>}
+        <span className="ml-2 text-sm text-neutral-700">{user.email}</span>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        {canEditRole ? (
+          <>
+            <label className="sr-only" htmlFor={`role-${user.id}`}>
+              Role for {user.name || user.email}
+            </label>
+            <div className="relative">
+              <select
+                id={`role-${user.id}`}
+                value={role}
+                onChange={(e) => setRole(e.target.value as "pm" | "super_admin")}
+                disabled={!!loading}
+                className="appearance-none rounded-md border border-neutral-300 bg-white py-1.5 pl-3 pr-8 text-sm text-neutral-900"
+              >
+                <option value="pm">Project Manager</option>
+                <option value="super_admin">Super Admin</option>
+              </select>
+              <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-neutral-500">
+                <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
+                  <path
+                    d="M5.25 7.5L10 12.25L14.75 7.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onSaveRole(user.id, role)}
+              disabled={!!loading}
+              className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </>
+        ) : (
+          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600">
+            {savedRole === "super_admin" ? "Super Admin" : "Project Manager"}
+          </span>
+        )}
+        {user.status === "invited" ? (
+          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-900">
+            Invited — sign in pending
+          </span>
+        ) : (
+          <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+            Active
+          </span>
+        )}
+        {user.status === "active" && !isSelf && user.role !== "super_admin" && (
+          <button
+            type="button"
+            onClick={() => onRevoke(user.id)}
+            disabled={!!loading}
+            className="text-sm text-red-600 underline hover:text-red-800 disabled:opacity-50"
+          >
+            {loading === `revoke-member-${user.id}` ? "Revoking…" : "Revoke"}
+          </button>
+        )}
+      </div>
+    </li>
   );
 }

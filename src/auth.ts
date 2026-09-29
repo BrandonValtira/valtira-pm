@@ -171,6 +171,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         } catch {
           // ignore
         }
+      } else if (token.userId) {
+        try {
+          const supabase = createAdminClient();
+          const { data: dbUser } = await supabase
+            .from("users")
+            .select("role, status")
+            .eq("id", token.userId as string)
+            .maybeSingle();
+          if (dbUser?.role) token.role = dbUser.role;
+          if (dbUser?.status) token.status = dbUser.status;
+        } catch {
+          // keep the role already stored on the token
+        }
       }
       return token;
     },

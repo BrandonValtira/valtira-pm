@@ -10,45 +10,21 @@ export default async function TeamPage() {
 
   const supabase = createAdminClient();
 
-  const [
-    { data: users, error: usersError },
-    { data: invites, error: invitesError },
-    { data: revokedInvites },
-  ] = await Promise.all([
-    supabase
-      .from("users")
-      .select("id, email, name, role, status, accepted_at, created_at")
-      .neq("role", "super_admin")
-      .in("status", ["active", "invited"])
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("invites")
-      .select("id, email, role, created_at, expires_at")
-      .is("used_at", null)
-      .is("revoked_at", null)
-      .gt("expires_at", new Date().toISOString())
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("invites")
-      .select("email")
-      .is("used_at", null)
-      .not("revoked_at", "is", null),
-  ]);
-
-  const revokedEmails = new Set(
-    (revokedInvites ?? []).map((i) => (i.email ?? "").trim().toLowerCase()).filter(Boolean)
-  );
-  const activeUsers = (users ?? []).filter(
-    (u) => !revokedEmails.has((u.email ?? "").trim().toLowerCase())
-  );
-
-  if (revokedEmails.size > 0) {
-    await supabase
-      .from("users")
-      .update({ status: "revoked", updated_at: new Date().toISOString() })
-      .neq("role", "super_admin")
-      .in("email", Array.from(revokedEmails));
-  }
+  const [{ data: users, error: usersError }, { data: invites, error: invitesError }] =
+    await Promise.all([
+      supabase
+        .from("users")
+        .select("id, email, name, role, status, accepted_at, created_at")
+        .in("status", ["active", "invited"])
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("invites")
+        .select("id, email, role, created_at, expires_at")
+        .is("used_at", null)
+        .is("revoked_at", null)
+        .gt("expires_at", new Date().toISOString())
+        .order("created_at", { ascending: false }),
+    ]);
 
   if (usersError) {
     return (
@@ -70,10 +46,10 @@ export default async function TeamPage() {
     <div>
       <h1 className="text-2xl font-semibold text-neutral-900">Team</h1>
       <p className="mt-1 text-sm text-neutral-700">
-        Invite PMs by email. Once they accept, they can sign in with Google and connect Harvest & Jira in Settings.
+        Invite people by email. Once they are active, you can set them as a Project Manager or Super Admin.
       </p>
       <TeamInvites
-        users={activeUsers}
+        users={users ?? []}
         invites={invites ?? []}
         currentUserId={(session?.user as { id?: string })?.id ?? ""}
       />
