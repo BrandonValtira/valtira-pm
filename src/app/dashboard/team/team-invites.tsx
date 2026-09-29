@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type User = {
   id: string;
@@ -35,6 +35,19 @@ export function TeamInvites({
   const [inviteRole, setInviteRole] = useState<"pm" | "super_admin">("pm");
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [roleError, setRoleError] = useState("");
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [roleTarget, setRoleTarget] = useState<User | null>(null);
+  const [draftRole, setDraftRole] = useState<"pm" | "super_admin">("pm");
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    function close() {
+      setOpenMenuId(null);
+    }
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [openMenuId]);
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault();
@@ -86,18 +99,32 @@ export function TeamInvites({
     }
   }
 
-  async function saveRole(userId: string, role: "pm" | "super_admin") {
-    setError("");
-    setLoading(`role-${userId}`);
+  function openChangeRole(user: User) {
+    setOpenMenuId(null);
+    setRoleError("");
+    setRoleTarget(user);
+    setDraftRole(user.role === "super_admin" ? "super_admin" : "pm");
+  }
+
+  async function saveRole() {
+    if (!roleTarget) return;
+    const savedRole: "pm" | "super_admin" = roleTarget.role === "super_admin" ? "super_admin" : "pm";
+    if (draftRole === savedRole) return;
+    setRoleError("");
+    setLoading(`role-${roleTarget.id}`);
     try {
-      const res = await fetch(`/api/team/members/${userId}/role`, {
+      const res = await fetch(`/api/team/members/${roleTarget.id}/role`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role }),
+        body: JSON.stringify({ role: draftRole }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) setError(data.error || "Failed to save role");
-      else router.refresh();
+      if (!res.ok) {
+        setRoleError(data.error || "Failed to save role");
+        return;
+      }
+      setRoleTarget(null);
+      router.refresh();
     } finally {
       setLoading(null);
     }
@@ -220,12 +247,17 @@ export function TeamInvites({
           <ul className="mt-4 divide-y divide-neutral-100">
             {users.map((u) => (
               <MemberRow
-                key={`${u.id}-${u.role}`}
+                key={`${u.id}-${u.role}-${u.status}`}
                 user={u}
                 isSelf={u.id === currentUserId}
+                menuOpen={openMenuId === u.id}
                 loading={loading}
-                onSaveRole={saveRole}
-                onRevoke={revokeMember}
+                onToggleMenu={() => setOpenMenuId((current) => (current === u.id ? null : u.id))}
+                onChangeRole={() => openChangeRole(u)}
+                onRevoke={() => {
+                  setOpenMenuId(null);
+                  revokeMember(u.id);
+                }}
               />
             ))}
           </ul>
@@ -233,6 +265,22 @@ export function TeamInvites({
           <p className="mt-4 text-sm text-neutral-700">No team members yet.</p>
         )}
       </div>
+
+      {roleTarget && (
+        <RoleDialog
+          user={roleTarget}
+          draftRole={draftRole}
+          saving={loading === `role-${roleTarget.id}`}
+          error={roleError}
+          onRoleChange={setDraftRole}
+          onClose={() => {
+            if (loading) return;
+            setRoleTarget(null);
+            setRoleError("");
+          }}
+          onSave={saveRole}
+        />
+      )}
     </div>
   );
 }
@@ -240,92 +288,193 @@ export function TeamInvites({
 function MemberRow({
   user,
   isSelf,
+  menuOpen,
   loading,
-  onSaveRole,
+  onToggleMenu,
+  onChangeRole,
   onRevoke,
 }: {
   user: User;
   isSelf: boolean;
+  menuOpen: boolean;
   loading: string | null;
-  onSaveRole: (userId: string, role: "pm" | "super_admin") => void;
-  onRevoke: (userId: string) => void;
+  onToggleMenu: () => void;
+  onChangeRole: () => void;
+  onRevoke: () => void;
 }) {
   const savedRole: "pm" | "super_admin" = user.role === "super_admin" ? "super_admin" : "pm";
-  const [role, setRole] = useState<"pm" | "super_admin">(savedRole);
-  const canEditRole = user.status === "active" && !isSelf;
-  const saving = loading === `role-${user.id}`;
+  const showMenu = !isSelf && (user.status === "active" || user.status === "invited");
+  const label = user.name || user.email || "team member";
 
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0">
       <div className="min-w-0">
-        <span className="font-medium text-neutral-900">{user.name || user.email}</span>
-        {isSelf && <span className="ml-2 text-xs text-neutral-500">You</span>}
-        <span className="ml-2 text-sm text-neutral-700">{user.email}</span>
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-neutral-900">{user.name || user.email}</span>
+          {isSelf && <span className="text-xs text-neutral-500">You</span>}
+        </div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-2">
+          <span className="text-sm text-neutral-700">{user.email}</span>
+          {user.status === "invited" ? (
+            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-900">
+              Invited — sign in pending
+            </span>
+          ) : (
+            <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+              Active
+            </span>
+          )}
+        </div>
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
-        {canEditRole ? (
-          <>
-            <label className="sr-only" htmlFor={`role-${user.id}`}>
-              Role for {user.name || user.email}
-            </label>
-            <div className="relative">
-              <select
-                id={`role-${user.id}`}
-                value={role}
-                onChange={(e) => setRole(e.target.value as "pm" | "super_admin")}
-                disabled={!!loading}
-                className="appearance-none rounded-md border border-neutral-300 bg-white py-1.5 pl-3 pr-8 text-sm text-neutral-900"
-              >
-                <option value="pm">Project Manager</option>
-                <option value="super_admin">Super Admin</option>
-              </select>
-              <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-neutral-500">
-                <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
-                  <path
-                    d="M5.25 7.5L10 12.25L14.75 7.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-            </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600">
+          {savedRole === "super_admin" ? "Super Admin" : "Project Manager"}
+        </span>
+        {showMenu && (
+          <div className="relative" onClick={(event) => event.stopPropagation()}>
             <button
               type="button"
-              onClick={() => onSaveRole(user.id, role)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label={`Actions for ${label}`}
+              onClick={onToggleMenu}
               disabled={!!loading}
-              className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+              className="rounded-md p-1.5 text-neutral-600 hover:bg-neutral-100 disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Save"}
+              <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5">
+                <circle cx="10" cy="4.5" r="1.25" fill="currentColor" />
+                <circle cx="10" cy="10" r="1.25" fill="currentColor" />
+                <circle cx="10" cy="15.5" r="1.25" fill="currentColor" />
+              </svg>
             </button>
-          </>
-        ) : (
-          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600">
-            {savedRole === "super_admin" ? "Super Admin" : "Project Manager"}
-          </span>
-        )}
-        {user.status === "invited" ? (
-          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-900">
-            Invited — sign in pending
-          </span>
-        ) : (
-          <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-            Active
-          </span>
-        )}
-        {user.status === "active" && !isSelf && user.role !== "super_admin" && (
-          <button
-            type="button"
-            onClick={() => onRevoke(user.id)}
-            disabled={!!loading}
-            className="text-sm text-red-600 underline hover:text-red-800 disabled:opacity-50"
-          >
-            {loading === `revoke-member-${user.id}` ? "Revoking…" : "Revoke"}
-          </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 z-20 mt-1 w-40 rounded-md border border-neutral-200 bg-white py-1 shadow-lg"
+              >
+                {user.status === "active" && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={onChangeRole}
+                    className="block w-full px-3 py-2 text-left text-sm text-neutral-900 hover:bg-neutral-50"
+                  >
+                    Change role
+                  </button>
+                )}
+                {user.role !== "super_admin" && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={onRevoke}
+                    disabled={!!loading}
+                    className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-neutral-50 disabled:opacity-50"
+                  >
+                    {loading === `revoke-member-${user.id}` ? "Revoking…" : "Revoke"}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </li>
+  );
+}
+
+function RoleDialog({
+  user,
+  draftRole,
+  saving,
+  error,
+  onRoleChange,
+  onClose,
+  onSave,
+}: {
+  user: User;
+  draftRole: "pm" | "super_admin";
+  saving: boolean;
+  error: string;
+  onRoleChange: (role: "pm" | "super_admin") => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const savedRole: "pm" | "super_admin" = user.role === "super_admin" ? "super_admin" : "pm";
+  const changed = draftRole !== savedRole;
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation">
+      <button type="button" aria-label="Close" className="absolute inset-0" onClick={onClose} />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="change-role-title"
+        className="relative w-full max-w-md rounded-xl bg-white p-6 shadow-lg"
+      >
+        <h3 id="change-role-title" className="text-base font-semibold text-neutral-900">
+          Change role
+        </h3>
+        <p className="mt-1 text-sm text-neutral-700">
+          {user.name || user.email}
+          {user.email && user.name ? ` · ${user.email}` : ""}
+        </p>
+        <label className="mt-4 block text-sm font-medium text-neutral-900" htmlFor="member-role">
+          Role
+        </label>
+        <div className="relative mt-1">
+          <select
+            id="member-role"
+            value={draftRole}
+            onChange={(e) => onRoleChange(e.target.value as "pm" | "super_admin")}
+            disabled={saving}
+            className="w-full appearance-none rounded-md border border-neutral-300 bg-white py-2 pl-3 pr-8 text-sm text-neutral-900"
+          >
+            <option value="pm">Project Manager</option>
+            <option value="super_admin">Super Admin</option>
+          </select>
+          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-neutral-500">
+            <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
+              <path
+                d="M5.25 7.5L10 12.25L14.75 7.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+        </div>
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-md px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          {changed && (
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={saving}
+              className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
