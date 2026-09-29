@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 
-/** Revoke a PM team member (super_admin only; cannot revoke self). */
+/** Revoke any other member (super_admin only; cannot revoke self). */
 export async function PATCH(
   _req: Request,
   { params }: { params: Promise<{ userId: string }> }
@@ -28,9 +28,6 @@ export async function PATCH(
 
   if (fetchError || !target) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
-  }
-  if (target.role === "super_admin") {
-    return NextResponse.json({ error: "Cannot revoke a super admin" }, { status: 403 });
   }
   if (target.status === "revoked") {
     return NextResponse.json({ error: "This account is already revoked" }, { status: 400 });

@@ -362,17 +362,15 @@ function MemberRow({
                     Change role
                   </button>
                 )}
-                {user.role !== "super_admin" && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={onRevoke}
-                    disabled={!!loading}
-                    className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-neutral-50 disabled:opacity-50"
-                  >
-                    {loading === `revoke-member-${user.id}` ? "Revoking…" : "Revoke"}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={onRevoke}
+                  disabled={!!loading}
+                  className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-neutral-50 disabled:opacity-50"
+                >
+                  {loading === `revoke-member-${user.id}` ? "Revoking…" : "Revoke"}
+                </button>
               </div>
             )}
           </div>
