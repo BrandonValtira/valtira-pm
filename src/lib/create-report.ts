@@ -7,7 +7,7 @@ import {
 } from "@/lib/budget-allocation-report";
 import { buildBudgetBurnSnapshot, resolveContractBoundsFromHarvest, type BudgetBurnSnapshot } from "@/lib/budget-burn-chart";
 import { getHarvestProjects, getHarvestTimeEntries, getHarvestProjectBudgetReport, isHarvestCostBudget, type HarvestProject, type HarvestProjectBudgetResult, type HarvestTimeEntry } from "@/lib/harvest";
-import { getHarvestAccess } from "@/lib/harvest-auth";
+import { resolveHarvestAccessForDirectory } from "@/lib/harvest-directory";
 import {
   REPORT_FORMAT_BUDGET_ALLOCATION,
   type ReportFormat,
@@ -66,8 +66,8 @@ async function buildHarvestSnapshot(
   if (!project) throw new Error("Project not found");
   const harvestIds = (project.harvest_project_ids ?? []) as number[];
   if (harvestIds.length === 0) throw new Error("Project has no Harvest projects linked");
-  const harvest = await getHarvestAccess(ownerUserId);
-  if (!harvest) throw new Error("Harvest not connected for project owner");
+  const harvest = await resolveHarvestAccessForDirectory(ownerUserId);
+  if (!harvest) throw new Error("Harvest not connected. A super admin needs to connect Harvest in Accounts.");
   const [timeEntries, allProjects, budgetReport] = await Promise.all([
     getHarvestTimeEntries(harvest.accountId, harvest.accessToken, start, end, harvestIds),
     getHarvestProjects(harvest.accountId, harvest.accessToken),

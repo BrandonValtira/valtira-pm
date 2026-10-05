@@ -1,11 +1,10 @@
 import { auth } from "@/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveHarvestAccessForDirectory } from "@/lib/harvest-directory";
 import {
   getHarvestProjects,
   getHarvestProjectBudgetReport,
   harvestProjectsFromBudgetReport,
 } from "@/lib/harvest";
-import { ensureValidHarvestToken } from "@/lib/harvest-oauth-refresh";
 import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {
@@ -14,28 +13,15 @@ export async function GET(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const supabase = createAdminClient();
-  const { data: integration } = await supabase
-    .from("user_integrations")
-    .select("id, access_token, refresh_token, expires_at, provider_metadata")
-    .eq("user_id", userId)
-    .eq("provider", "harvest")
-    .single();
-  if (!integration?.access_token) {
+  const harvest = await resolveHarvestAccessForDirectory(userId);
+  if (!harvest) {
     return NextResponse.json(
-      { error: "Harvest not connected. Sign in with Harvest in Settings." },
+      { error: "Harvest not connected. A super admin needs to connect Harvest in Accounts." },
       { status: 400 }
     );
   }
-  const accountId = (integration.provider_metadata as { account_id?: string })?.account_id;
-  if (!accountId) {
-    return NextResponse.json(
-      { error: "Harvest account ID missing. Reconnect in Settings." },
-      { status: 400 }
-    );
-  }
+  const { accountId, accessToken } = harvest;
   try {
-    const accessToken = await ensureValidHarvestToken(supabase, integration);
     const [projectsFromApi, budgetResults] = await Promise.all([
       getHarvestProjects(accountId, accessToken, { isActive: true }),
       getHarvestProjectBudgetReport(accountId, accessToken),
