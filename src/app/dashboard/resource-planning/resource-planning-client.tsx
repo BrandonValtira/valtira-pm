@@ -977,7 +977,7 @@ export function ResourcePlanningClient() {
           <p className="font-medium text-amber-950">Harvest is not available for utilization</p>
           <p className="mt-2 text-amber-900/90">{harvestTeamLoad.message}</p>
           <p className="mt-3 text-amber-900/90">
-            The utilization view uses Harvest&apos;s full team list (via the super admin&apos;s Harvest connection when
+            The utilization view uses Harvest&apos;s full team list (via the company Harvest login when
             available, otherwise yours). Connect or refresh Harvest under <strong>Accounts</strong> on the Dashboard,
             then return here.
           </p>

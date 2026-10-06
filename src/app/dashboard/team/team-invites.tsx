@@ -11,7 +11,10 @@ type User = {
   status: string;
   accepted_at: string | null;
   created_at: string;
+  org_connection?: boolean;
 };
+
+type AccountConnections = { harvest: boolean; google: boolean; jira: boolean };
 
 type Invite = {
   id: string;
@@ -25,10 +28,14 @@ export function TeamInvites({
   users,
   invites,
   currentUserId,
+  orgConnectionUserId,
+  connections,
 }: {
   users: User[];
   invites: Invite[];
   currentUserId: string;
+  orgConnectionUserId: string;
+  connections: Record<string, AccountConnections>;
 }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -146,6 +153,11 @@ export function TeamInvites({
 
   return (
     <div className="mt-8 space-y-8">
+      <CompanyLogins
+        users={users}
+        orgConnectionUserId={orgConnectionUserId}
+        connections={connections}
+      />
       <div className="rounded-xl border border-neutral-200 bg-white p-6">
         <h2 className="text-sm font-medium text-neutral-900">Invite by email</h2>
         <p className="mt-1 text-sm text-neutral-700">
@@ -250,6 +262,7 @@ export function TeamInvites({
                 key={`${u.id}-${u.role}-${u.status}`}
                 user={u}
                 isSelf={u.id === currentUserId}
+                isOrgConnection={u.id === orgConnectionUserId}
                 menuOpen={openMenuId === u.id}
                 loading={loading}
                 onToggleMenu={() => setOpenMenuId((current) => (current === u.id ? null : u.id))}
@@ -285,9 +298,138 @@ export function TeamInvites({
   );
 }
 
+function CompanyLogins({
+  users,
+  orgConnectionUserId,
+  connections,
+}: {
+  users: User[];
+  orgConnectionUserId: string;
+  connections: Record<string, AccountConnections>;
+}) {
+  const router = useRouter();
+  const superAdmins = users.filter((user) => user.role === "super_admin" && user.status === "active");
+  const [draftId, setDraftId] = useState(orgConnectionUserId);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setDraftId(orgConnectionUserId);
+  }, [orgConnectionUserId]);
+
+  const selected = superAdmins.find((user) => user.id === draftId) ?? null;
+  const linked = connections[draftId] ?? { harvest: false, google: false, jira: false };
+  const changed = draftId !== orgConnectionUserId && draftId !== "";
+
+  async function save() {
+    if (!changed) return;
+    setError("");
+    setSaving(true);
+    try {
+      const res = await fetch("/api/team/org-connection", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: draftId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Failed to save company logins");
+        return;
+      }
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-neutral-200 bg-white p-6">
+      <h2 className="text-sm font-medium text-neutral-900">Company Logins</h2>
+      <div className="mt-2 space-y-3 text-sm text-neutral-700">
+        <p>
+          The Valtira PM app uses connected accounts from a Super Admin to access company-wide data from
+          Harvest, Google, and Jira.
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>Harvest: Provides projects, reported hours, resource planning data, and the team directory.</li>
+          <li>Google: Provides PTO and time-off information for the resource planning calendar.</li>
+          <li>
+            Jira: Provides company project data. If the Super Admin does not have Jira connected, the app will
+            use another authorized Jira connection.
+          </li>
+        </ul>
+        <p>
+          The Company Login user must be a Super Admin in Valtira PM and have the appropriate external
+          accounts connected under Accounts.
+        </p>
+        <p>
+          Changing the Company Login user does not transfer account connections. The new user must connect
+          the required accounts, then sign out and back in before their access is used.
+        </p>
+      </div>
+      {superAdmins.length > 0 ? (
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-neutral-900" htmlFor="org-connection-user">
+            Company Login
+          </label>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[16rem] flex-1">
+              <select
+                id="org-connection-user"
+                value={draftId}
+                onChange={(event) => setDraftId(event.target.value)}
+                disabled={saving}
+                className="w-full appearance-none rounded-md border border-neutral-300 bg-white py-2 pl-3 pr-8 text-sm text-neutral-900"
+              >
+                {superAdmins.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name || user.email}
+                    {user.email && user.name ? ` · ${user.email}` : ""}
+                  </option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-neutral-500">
+                <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
+                  <path
+                    d="M5.25 7.5L10 12.25L14.75 7.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+            </div>
+            {changed && (
+              <button
+                type="button"
+                onClick={save}
+                disabled={saving}
+                className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            )}
+          </div>
+          {selected && (!linked.harvest || !linked.google) && (
+            <p className="mt-1 text-sm text-amber-800">
+              Harvest and Google both need to be connected on this account before company projects and PTO can load.
+            </p>
+          )}
+          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-neutral-700">No active super admins to assign.</p>
+      )}
+    </section>
+  );
+}
+
 function MemberRow({
   user,
   isSelf,
+  isOrgConnection,
   menuOpen,
   loading,
   onToggleMenu,
@@ -296,6 +438,7 @@ function MemberRow({
 }: {
   user: User;
   isSelf: boolean;
+  isOrgConnection: boolean;
   menuOpen: boolean;
   loading: string | null;
   onToggleMenu: () => void;
@@ -312,6 +455,11 @@ function MemberRow({
         <div className="flex items-center gap-2">
           <span className="font-medium text-neutral-900">{user.name || user.email}</span>
           {isSelf && <span className="text-xs text-neutral-500">You</span>}
+          {isOrgConnection && (
+            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-900">
+              Harvest &amp; PTO
+            </span>
+          )}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
           <span className="text-sm text-neutral-700">{user.email}</span>

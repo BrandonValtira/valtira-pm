@@ -35,7 +35,7 @@ export async function PATCH(
 
   const { error: updateError } = await supabase
     .from("users")
-    .update({ status: "revoked", updated_at: new Date().toISOString() })
+    .update({ status: "revoked", org_connection: false, updated_at: new Date().toISOString() })
     .eq("id", userId);
 
   if (updateError) {

@@ -1,31 +1,16 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getGoogleAccessToken } from "@/lib/google-auth";
+import { resolveOrgConnectionUserId } from "@/lib/org-connection";
 
-/** Prefer env-matched super admin, else any active super_admin. */
+/** Company Harvest, PTO, and Jira account. Explicit team-page choice, else env super admin. */
 export async function resolveCanonicalSuperAdminUserId(
   supabase: ReturnType<typeof createAdminClient>
 ): Promise<string | null> {
-  const envEmail =
-    process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase() ||
-    process.env.AUTH_SUPER_ADMIN_EMAIL?.trim().toLowerCase() ||
-    null;
-  const { data: admins } = await supabase
-    .from("users")
-    .select("id, email")
-    .eq("role", "super_admin")
-    .eq("status", "active");
-  if (!admins?.length) return null;
-  if (envEmail) {
-    const match = admins.find(
-      (a) => typeof a.email === "string" && a.email.trim().toLowerCase() === envEmail
-    );
-    if (match) return match.id;
-  }
-  return admins[0].id;
+  return resolveOrgConnectionUserId(supabase);
 }
 
 /**
- * Google token for team-wide features (vacation calendar): super admin’s Google when connected,
+ * Google token for team-wide features (vacation calendar): company login when connected,
  * otherwise the signed-in user’s Google.
  */
 export async function resolveGoogleAccessTokenForTeam(

@@ -78,7 +78,7 @@ export async function getJiraAccess(userId: string): Promise<JiraOAuthAccess | n
   return { cloudId, accessToken: integration.access_token, siteUrl };
 }
 
-/** Org Jira connection: super admin first, then any connected Jira user. */
+/** Org Jira connection: company login first, then any connected Jira user. */
 export async function resolveOrgJiraAccess(): Promise<JiraOAuthAccess | null> {
   const supabase = createAdminClient();
   const superAdminId = await resolveCanonicalSuperAdminUserId(supabase);

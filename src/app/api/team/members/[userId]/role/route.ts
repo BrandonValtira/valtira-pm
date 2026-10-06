@@ -47,7 +47,11 @@ export async function PATCH(
 
   const { error: updateError } = await supabase
     .from("users")
-    .update({ role: nextRole as TeamRole, updated_at: new Date().toISOString() })
+    .update({
+      role: nextRole as TeamRole,
+      updated_at: new Date().toISOString(),
+      ...(nextRole === "pm" ? { org_connection: false } : {}),
+    })
     .eq("id", userId);
 
   if (updateError) {

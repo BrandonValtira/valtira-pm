@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveOrgConnectionUserId } from "@/lib/org-connection";
 import { redirect } from "next/navigation";
 import { TeamInvites } from "./team-invites";
 
@@ -10,11 +11,11 @@ export default async function TeamPage() {
 
   const supabase = createAdminClient();
 
-  const [{ data: users, error: usersError }, { data: invites, error: invitesError }] =
+  const [{ data: users, error: usersError }, { data: invites, error: invitesError }, { data: integrations }] =
     await Promise.all([
       supabase
         .from("users")
-        .select("id, email, name, role, status, accepted_at, created_at")
+        .select("id, email, name, role, status, accepted_at, created_at, org_connection")
         .in("status", ["active", "invited"])
         .order("created_at", { ascending: false }),
       supabase
@@ -24,6 +25,11 @@ export default async function TeamPage() {
         .is("revoked_at", null)
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: false }),
+      supabase
+        .from("user_integrations")
+        .select("user_id, provider")
+        .in("provider", ["harvest", "google_drive", "jira"])
+        .not("access_token", "is", null),
     ]);
 
   if (usersError) {
@@ -42,6 +48,17 @@ export default async function TeamPage() {
     );
   }
 
+  const orgConnectionUserId = (await resolveOrgConnectionUserId(supabase)) ?? "";
+  const connections: Record<string, { harvest: boolean; google: boolean; jira: boolean }> = {};
+  for (const row of integrations ?? []) {
+    const userId = row.user_id as string;
+    const current = connections[userId] ?? { harvest: false, google: false, jira: false };
+    if (row.provider === "harvest") current.harvest = true;
+    if (row.provider === "google_drive") current.google = true;
+    if (row.provider === "jira") current.jira = true;
+    connections[userId] = current;
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-semibold text-neutral-900">Team</h1>
@@ -52,6 +69,8 @@ export default async function TeamPage() {
         users={users ?? []}
         invites={invites ?? []}
         currentUserId={(session?.user as { id?: string })?.id ?? ""}
+        orgConnectionUserId={orgConnectionUserId}
+        connections={connections}
       />
     </div>
   );

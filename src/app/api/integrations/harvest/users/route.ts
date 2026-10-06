@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureValidHarvestToken } from "@/lib/harvest-oauth-refresh";
 import { getHarvestUsers } from "@/lib/harvest";
+import { resolveOrgConnectionUserId } from "@/lib/org-connection";
 import { NextResponse } from "next/server";
 
 type HarvestIntegrationRow = {
@@ -15,29 +16,6 @@ type HarvestIntegrationRow = {
 function getAccountId(meta: unknown): string | undefined {
   const v = (meta as { account_id?: string })?.account_id;
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
-}
-
-/** Prefer env-matched super admin, else any active super_admin (first row). */
-async function resolveCanonicalSuperAdminUserId(
-  supabase: ReturnType<typeof createAdminClient>
-): Promise<string | null> {
-  const envEmail =
-    process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase() ||
-    process.env.AUTH_SUPER_ADMIN_EMAIL?.trim().toLowerCase() ||
-    null;
-  const { data: admins } = await supabase
-    .from("users")
-    .select("id, email")
-    .eq("role", "super_admin")
-    .eq("status", "active");
-  if (!admins?.length) return null;
-  if (envEmail) {
-    const match = admins.find(
-      (a) => typeof a.email === "string" && a.email.trim().toLowerCase() === envEmail
-    );
-    if (match) return match.id;
-  }
-  return admins[0].id;
 }
 
 async function fetchHarvestIntegration(
@@ -68,7 +46,7 @@ async function resolveHarvestIntegrationForDirectory(
   supabase: ReturnType<typeof createAdminClient>,
   sessionUserId: string
 ): Promise<{ integration: HarvestIntegrationRow & { access_token: string }; accountId: string } | null> {
-  const superAdminId = await resolveCanonicalSuperAdminUserId(supabase);
+  const superAdminId = await resolveOrgConnectionUserId(supabase);
   const ordered: string[] = [];
   if (superAdminId) ordered.push(superAdminId);
   if (!ordered.includes(sessionUserId)) ordered.push(sessionUserId);
