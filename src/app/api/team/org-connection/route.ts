@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 
-/** Point company Harvest, PTO, and Jira at an active super admin. */
+/** Point company Harvest and Jira at an active super admin. */
 export async function PATCH(req: Request) {
   const session = await auth();
   const role = (session?.user as { role?: string })?.role;

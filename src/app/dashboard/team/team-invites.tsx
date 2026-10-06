@@ -14,7 +14,7 @@ type User = {
   org_connection?: boolean;
 };
 
-type AccountConnections = { harvest: boolean; google: boolean; jira: boolean };
+type AccountConnections = { harvest: boolean; jira: boolean };
 
 type Invite = {
   id: string;
@@ -319,7 +319,7 @@ function CompanyLogins({
   }, [orgConnectionUserId]);
 
   const selected = superAdmins.find((user) => user.id === draftId) ?? null;
-  const linked = connections[draftId] ?? { harvest: false, google: false, jira: false };
+  const linked = connections[draftId] ?? { harvest: false, jira: false };
   const changed = draftId !== orgConnectionUserId && draftId !== "";
 
   async function save() {
@@ -349,11 +349,10 @@ function CompanyLogins({
       <div className="mt-2 space-y-3 text-sm text-neutral-700">
         <p>
           The Valtira PM app uses connected accounts from a Super Admin to access company-wide data from
-          Harvest, Google, and Jira.
+          Harvest and Jira.
         </p>
         <ul className="list-disc space-y-1 pl-5">
           <li>Harvest: Provides projects, reported hours, resource planning data, and the team directory.</li>
-          <li>Google: Provides PTO and time-off information for the resource planning calendar.</li>
           <li>
             Jira: Provides company project data. If the Super Admin does not have Jira connected, the app will
             use another authorized Jira connection.
@@ -413,9 +412,9 @@ function CompanyLogins({
               </button>
             )}
           </div>
-          {selected && (!linked.harvest || !linked.google) && (
+          {selected && !linked.harvest && (
             <p className="mt-1 text-sm text-amber-800">
-              Harvest and Google both need to be connected on this account before company projects and PTO can load.
+              Harvest needs to be connected on this account before company projects can load.
             </p>
           )}
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}

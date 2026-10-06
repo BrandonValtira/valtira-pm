@@ -103,7 +103,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const google = await resolveGoogleAccessTokenForTeam(userId);
+  const google = await resolveGoogleAccessTokenForTeam();
   if (!google) {
     return NextResponse.json(
       {
@@ -111,7 +111,7 @@ export async function GET(req: Request) {
         connected: false,
         weeksByResource: {},
         message:
-          "Google is not connected. A super admin should connect Google in Settings (with Calendar access) to load vacation weeks.",
+          "Google is not connected for the vacation calendar. One person with access to the OOO calendar needs to connect Google under Accounts.",
       },
       { status: 200 }
     );

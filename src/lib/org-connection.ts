@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
- * Whose connected accounts supply company Harvest, PTO, and Jira.
+ * Whose connected accounts supply company Harvest and Jira.
  * An explicit team-page choice wins. Otherwise the env super admin, then any active super admin.
  */
 export async function resolveOrgConnectionUserId(

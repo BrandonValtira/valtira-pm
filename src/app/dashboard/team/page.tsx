@@ -28,7 +28,7 @@ export default async function TeamPage() {
       supabase
         .from("user_integrations")
         .select("user_id, provider")
-        .in("provider", ["harvest", "google_drive", "jira"])
+        .in("provider", ["harvest", "jira"])
         .not("access_token", "is", null),
     ]);
 
@@ -49,12 +49,11 @@ export default async function TeamPage() {
   }
 
   const orgConnectionUserId = (await resolveOrgConnectionUserId(supabase)) ?? "";
-  const connections: Record<string, { harvest: boolean; google: boolean; jira: boolean }> = {};
+  const connections: Record<string, { harvest: boolean; jira: boolean }> = {};
   for (const row of integrations ?? []) {
     const userId = row.user_id as string;
-    const current = connections[userId] ?? { harvest: false, google: false, jira: false };
+    const current = connections[userId] ?? { harvest: false, jira: false };
     if (row.provider === "harvest") current.harvest = true;
-    if (row.provider === "google_drive") current.google = true;
     if (row.provider === "jira") current.jira = true;
     connections[userId] = current;
   }
