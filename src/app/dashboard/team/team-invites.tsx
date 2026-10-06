@@ -360,18 +360,18 @@ function CompanyLogins({
           </li>
         </ul>
         <p>
-          The Company Login user must be a Super Admin in Valtira PM and have the appropriate external
+          The Company Data Connection user must be a Super Admin in Valtira PM and have the appropriate external
           accounts connected under Accounts.
         </p>
         <p>
-          Changing the Company Login user does not transfer account connections. The new user must connect
+          Changing the Company Data Connection user does not transfer account connections. The new user must connect
           the required accounts, then sign out and back in before their access is used.
         </p>
       </div>
       {superAdmins.length > 0 ? (
         <div className="mt-4">
           <label className="block text-sm font-medium text-neutral-900" htmlFor="org-connection-user">
-            Company Login
+            Company Data Connection
           </label>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <div className="relative min-w-[16rem] flex-1">
