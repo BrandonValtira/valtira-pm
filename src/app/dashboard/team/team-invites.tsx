@@ -154,7 +154,7 @@ export function TeamInvites({
   return (
     <div className="mt-8 space-y-8">
       <div className="rounded-xl border border-neutral-200 bg-white p-6">
-        <h2 className="text-sm font-medium text-neutral-900">Invite by email</h2>
+        <h2 className="text-base font-bold text-neutral-900">Invite by email</h2>
         <p className="mt-1 text-sm text-neutral-700">
           They’ll get an email with a link to accept. After accepting, they sign in with Google and can connect Harvest & Jira in Settings.
         </p>
@@ -245,7 +245,7 @@ export function TeamInvites({
       )}
 
       <div className="rounded-xl border border-neutral-200 bg-white p-6">
-        <h2 className="text-sm font-medium text-neutral-900">Team members</h2>
+        <h2 className="text-base font-bold text-neutral-900">Team members</h2>
         <p className="mt-1 text-sm text-neutral-700">
           Active members can be a Project Manager or Super Admin. Change the role and save it whenever you need to.
           Someone stays invited until they open the invite link and sign in with the same Google email.
@@ -345,7 +345,7 @@ function CompanyLogins({
 
   return (
     <section className="rounded-xl border border-neutral-200 bg-white p-6">
-      <h2 className="text-sm font-medium text-neutral-900">Company Data Connections</h2>
+      <h2 className="text-base font-bold text-neutral-900">Company Data Connections</h2>
       <div className="mt-2 space-y-3 text-sm text-neutral-700">
         <p>
           The Valtira PM app uses connected accounts from a Super Admin to access company-wide data from
