@@ -153,11 +153,6 @@ export function TeamInvites({
 
   return (
     <div className="mt-8 space-y-8">
-      <CompanyLogins
-        users={users}
-        orgConnectionUserId={orgConnectionUserId}
-        connections={connections}
-      />
       <div className="rounded-xl border border-neutral-200 bg-white p-6">
         <h2 className="text-sm font-medium text-neutral-900">Invite by email</h2>
         <p className="mt-1 text-sm text-neutral-700">
@@ -279,6 +274,12 @@ export function TeamInvites({
         )}
       </div>
 
+      <CompanyLogins
+        users={users}
+        orgConnectionUserId={orgConnectionUserId}
+        connections={connections}
+      />
+
       {roleTarget && (
         <RoleDialog
           user={roleTarget}
@@ -344,7 +345,7 @@ function CompanyLogins({
 
   return (
     <section className="rounded-xl border border-neutral-200 bg-white p-6">
-      <h2 className="text-sm font-medium text-neutral-900">Company Logins</h2>
+      <h2 className="text-sm font-medium text-neutral-900">Company Data Connections</h2>
       <div className="mt-2 space-y-3 text-sm text-neutral-700">
         <p>
           The Valtira PM app uses connected accounts from a Super Admin to access company-wide data from
