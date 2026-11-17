@@ -87,13 +87,15 @@ function ThemeToggle({ showLabel, className = "" }: { showLabel?: boolean; class
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
         </svg>
       )}
-      {showLabel && <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>}
+      <span className={showLabel ? undefined : LABEL_WIDE_ONLY}>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
     </button>
   );
 }
 
-const SIDEBAR_WIDTH_OPEN = 200;
-const SIDEBAR_WIDTH_CLOSED = 56;
+// At 1440px and wider the sidebar stays open; below that it opens on hover.
+const SIDEBAR_WIDTH_OPEN = "w-[200px]";
+const SIDEBAR_WIDTH_CLOSED = "w-14 min-[1440px]:w-[200px]";
+const LABEL_WIDE_ONLY = "hidden min-[1440px]:inline";
 
 function NavLinks({
   pathname,
@@ -124,7 +126,7 @@ function NavLinks({
             }`}
           >
             <Icon className="h-5 w-5 shrink-0" />
-            {showLabels && <span>{item.label}</span>}
+            <span className={showLabels ? undefined : LABEL_WIDE_ONLY}>{item.label}</span>
           </Link>
         );
       })}
@@ -199,8 +201,9 @@ export function DashboardSidebar({ sessionUser }: { sessionUser: SessionUser | n
 
       {/* Desktop sidebar — full left column triggers hover-open when collapsed */}
       <aside
-        className="fixed left-0 top-14 z-10 hidden h-[calc(100vh-3.5rem)] border-r border-neutral-200 bg-white transition-[width] duration-200 ease-out md:block"
-        style={{ width: effectiveOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_CLOSED }}
+        className={`fixed left-0 top-14 z-10 hidden h-[calc(100vh-3.5rem)] border-r border-neutral-200 bg-white transition-[width] duration-200 ease-out md:block ${
+          effectiveOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_CLOSED
+        }`}
         onMouseEnter={handleMouseEnterSidebar}
         onMouseLeave={handleMouseLeaveSidebar}
       >
@@ -217,8 +220,9 @@ export function DashboardSidebar({ sessionUser }: { sessionUser: SessionUser | n
 
       {/* Spacer so main content doesn't sit under sidebar (desktop) */}
       <div
-        className="hidden shrink-0 transition-[width] duration-200 ease-out md:block"
-        style={{ width: effectiveOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_CLOSED }}
+        className={`hidden shrink-0 transition-[width] duration-200 ease-out md:block ${
+          effectiveOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_CLOSED
+        }`}
         aria-hidden
       />
     </>
