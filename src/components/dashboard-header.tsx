@@ -9,7 +9,7 @@ type SessionUser = { name?: string | null; email?: string | null; image?: string
 export function DashboardHeader({ sessionUser }: { sessionUser: SessionUser | null }) {
   return (
     <header className="sticky top-0 z-40 border-b border-neutral-200 bg-white">
-      <div className="flex h-14 items-center justify-between px-4 md:mx-auto md:max-w-6xl">
+      <div className="flex h-14 items-center justify-between px-4">
         <Link href="/dashboard" className="flex items-center" aria-label="Valtira – Dashboard">
           <ValtiraLogo height={43} />
         </Link>
