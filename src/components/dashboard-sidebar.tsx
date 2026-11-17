@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useTheme } from "@/components/theme-context";
 
 type SessionUser = { name?: string | null; email?: string | null; image?: string | null; role?: string };
@@ -75,7 +75,7 @@ function ThemeToggle({ showLabel, className = "" }: { showLabel?: boolean; class
     <button
       type="button"
       onClick={toggleTheme}
-      className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-50 hover:text-neutral-900 ${className}`}
+      className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-50 hover:text-neutral-900 ${className}`}
       aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
     >
       {theme === "dark" ? (
@@ -88,14 +88,20 @@ function ThemeToggle({ showLabel, className = "" }: { showLabel?: boolean; class
         </svg>
       )}
       <span className={showLabel ? undefined : LABEL_WIDE_ONLY}>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+      {!showLabel && (
+        <span className={HOVER_LABEL} aria-hidden>
+          {theme === "dark" ? "Light mode" : "Dark mode"}
+        </span>
+      )}
     </button>
   );
 }
 
-// At 1440px and wider the sidebar stays open; below that it opens on hover.
-const SIDEBAR_WIDTH_OPEN = "w-[200px]";
-const SIDEBAR_WIDTH_CLOSED = "w-14 min-[1440px]:w-[200px]";
+// At 1440px and wider the sidebar stays open with labels; below that it shows icons with a floating label on hover.
+const SIDEBAR_WIDTH = "w-14 min-[1440px]:w-[200px]";
 const LABEL_WIDE_ONLY = "hidden min-[1440px]:inline";
+const HOVER_LABEL =
+  "pointer-events-none absolute left-full top-1/2 z-10 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 min-[1440px]:hidden";
 
 function NavLinks({
   pathname,
@@ -119,7 +125,7 @@ function NavLinks({
             key={item.href}
             href={item.href}
             onClick={onNavigate}
-            className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+            className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
               isActive
                 ? "bg-neutral-100 font-medium text-neutral-900 dark:bg-blue-600 dark:text-white"
                 : "text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-blue-600/80 dark:hover:text-white"
@@ -127,6 +133,7 @@ function NavLinks({
           >
             <Icon className="h-5 w-5 shrink-0" />
             <span className={showLabels ? undefined : LABEL_WIDE_ONLY}>{item.label}</span>
+            {!showLabels && <span className={HOVER_LABEL}>{item.label}</span>}
           </Link>
         );
       })}
@@ -136,14 +143,9 @@ function NavLinks({
 
 export function DashboardSidebar({ sessionUser }: { sessionUser: SessionUser | null }) {
   const pathname = usePathname();
-  const [isHoveringEdge, setIsHoveringEdge] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const isSuperAdmin = (sessionUser as { role?: string })?.role === "super_admin";
-  const effectiveOpen = isHoveringEdge;
-
-  const handleMouseEnterSidebar = useCallback(() => setIsHoveringEdge(true), []);
-  const handleMouseLeaveSidebar = useCallback(() => setIsHoveringEdge(false), []);
 
   return (
     <>
@@ -199,30 +201,24 @@ export function DashboardSidebar({ sessionUser }: { sessionUser: SessionUser | n
         </>
       )}
 
-      {/* Desktop sidebar — full left column triggers hover-open when collapsed */}
+      {/* Desktop sidebar. Sits above the Resources grid's sticky columns (z-30) so hover labels aren't covered. */}
       <aside
-        className={`fixed left-0 top-14 z-10 hidden h-[calc(100vh-3.5rem)] border-r border-neutral-200 bg-white transition-[width] duration-200 ease-out md:block ${
-          effectiveOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_CLOSED
-        }`}
-        onMouseEnter={handleMouseEnterSidebar}
-        onMouseLeave={handleMouseLeaveSidebar}
+        className={`fixed left-0 top-14 z-[35] hidden h-[calc(100vh-3.5rem)] border-r border-neutral-200 bg-white transition-[width] duration-200 ease-out md:block ${SIDEBAR_WIDTH}`}
       >
         <div className="flex h-full flex-col py-3">
           <nav className="flex flex-1 flex-col gap-0.5 px-2" aria-label="Main navigation">
-            <NavLinks pathname={pathname} isSuperAdmin={isSuperAdmin} showLabels={effectiveOpen} />
+            <NavLinks pathname={pathname} isSuperAdmin={isSuperAdmin} showLabels={false} />
           </nav>
 
           <div className="mt-auto border-t border-neutral-200 px-2 pt-2">
-            <ThemeToggle showLabel={effectiveOpen} />
+            <ThemeToggle showLabel={false} />
           </div>
         </div>
       </aside>
 
       {/* Spacer so main content doesn't sit under sidebar (desktop) */}
       <div
-        className={`hidden shrink-0 transition-[width] duration-200 ease-out md:block ${
-          effectiveOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_CLOSED
-        }`}
+        className={`hidden shrink-0 transition-[width] duration-200 ease-out md:block ${SIDEBAR_WIDTH}`}
         aria-hidden
       />
     </>
