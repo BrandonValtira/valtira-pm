@@ -8,7 +8,6 @@ const GLOWS: Glow[] = [
   { color: "104, 34, 185", x: "88%", y: "8%", size: "60vmax", alpha: 0.17 },
   { color: "11, 163, 214", x: "96%", y: "92%", size: "55vmax", alpha: 0.3 },
   { color: "206, 27, 107", x: "38%", y: "108%", size: "45vmax", alpha: 0.16 },
-  { color: "46, 116, 203", x: "-4%", y: "38%", size: "42vmax", alpha: 0.16 },
   { color: "104, 34, 185", x: "72%", y: "30%", size: "17vmax", alpha: 0.1, disc: "soft" },
   { color: "11, 163, 214", x: "84%", y: "64%", size: "9vmax", alpha: 0.14, disc: "disc" },
   { color: "206, 27, 107", x: "62%", y: "82%", size: "7vmax", alpha: 0.11, disc: "disc" },
