@@ -10,9 +10,18 @@
   --foreground: #171717;
 }
 
+/* Dark theme: neutral deep greys. The page sits slightly darker than cards and panels. */
 html.dark {
-  --background: #020617;
-  --foreground: #f9fafb;
+  --background: #141414;
+  --foreground: #ededed;
+  --dark-surface: #1c1c1c;
+  --dark-raised: #262626;
+  --dark-raised-strong: #303030;
+  --dark-hover: #262626;
+  --dark-border: #2e2e2e;
+  --dark-border-subtle: #262626;
+  --dark-text-muted: #b5b5b5;
+  --dark-text-faint: #9a9a9a;
 }
 
 body {
@@ -22,37 +31,60 @@ body {
 }
 
 .dark body {
-  background: #020617;
+  background: var(--background);
   color: var(--foreground);
 }
 
-.dark .bg-white,
+.dark .bg-white {
+  background-color: var(--dark-surface) !important;
+}
+
 .dark .bg-neutral-50,
-.dark .bg-neutral-50\/50 {
-  background-color: #020617 !important;
+.dark .bg-neutral-50\/30,
+.dark .bg-neutral-50\/50,
+.dark .bg-neutral-50\/80 {
+  background-color: var(--background) !important;
+}
+
+/* Light grey fills (tags, progress tracks, loading placeholders). Elements with their own dark: colour keep it. */
+.dark .bg-neutral-100:not([class*="dark:bg-"]) {
+  background-color: var(--dark-raised) !important;
+}
+
+.dark .bg-neutral-200:not([class*="dark:bg-"]) {
+  background-color: var(--dark-raised-strong) !important;
 }
 
 /* Project summary regenerate overlay: dark in dark mode (not white blur) */
 .dark .summary-regenerate-overlay {
-  background-color: rgba(3, 7, 18, 0.88) !important;
+  background-color: rgba(20, 20, 20, 0.88) !important;
   backdrop-filter: blur(8px);
 }
 
 .dark .border-neutral-200,
+.dark .border-neutral-200\/80,
 .dark .border-neutral-300 {
-  border-color: #334155 !important;
+  border-color: var(--dark-border) !important;
+}
+
+.dark .border-neutral-50,
+.dark .border-neutral-100 {
+  border-color: var(--dark-border-subtle) !important;
 }
 
 .dark .text-neutral-900,
 .dark .text-neutral-800,
 .dark .text-neutral-700 {
-  color: #f9fafb !important;
+  color: var(--foreground) !important;
 }
 
-.dark .text-neutral-600,
+.dark .text-neutral-600 {
+  color: var(--dark-text-muted) !important;
+}
+
 .dark .text-neutral-500,
 .dark .text-neutral-400 {
-  color: #e5e7eb !important;
+  color: var(--dark-text-faint) !important;
 }
 
 .dark .bg-neutral-900 {
@@ -66,15 +98,16 @@ body {
 /* Dark-mode hover backgrounds: avoid white-on-white */
 .dark .hover\:bg-neutral-50:hover,
 .dark .hover\:bg-neutral-100:hover,
-.dark .hover\:bg-neutral-100\/80:hover {
-  background-color: #111827 !important; /* slate-900-ish */
+.dark .hover\:bg-neutral-100\/80:hover,
+.dark .hover\:bg-neutral-200:hover:not([class*="dark:hover:bg-"]) {
+  background-color: var(--dark-hover) !important;
 }
 
 .dark input,
 .dark textarea,
 .dark select {
-  background-color: #020617;
-  border-color: #334155;
+  background-color: var(--background);
+  border-color: var(--dark-border);
 }
 
 .dark .toggle {
