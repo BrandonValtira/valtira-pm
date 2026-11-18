@@ -1,27 +1,45 @@
 type Position = "top-right" | "bottom-right";
 
-/** Top-right: logo mark. Bottom-right: abstract corner background. Both behind content. */
+type Glow = { color: string; x: string; y: string; size: string; alpha: number; disc?: boolean };
+
+/** Brand purple, cyan, magenta and blue. Large soft washes plus a few bokeh discs, weighted to the right. */
+const GLOWS: Glow[] = [
+  { color: "104, 34, 185", x: "88%", y: "8%", size: "60vmax", alpha: 0.26 },
+  { color: "11, 163, 214", x: "96%", y: "92%", size: "55vmax", alpha: 0.3 },
+  { color: "206, 27, 107", x: "38%", y: "108%", size: "45vmax", alpha: 0.16 },
+  { color: "46, 116, 203", x: "-4%", y: "38%", size: "42vmax", alpha: 0.16 },
+  { color: "104, 34, 185", x: "72%", y: "30%", size: "13vmax", alpha: 0.12, disc: true },
+  { color: "11, 163, 214", x: "84%", y: "64%", size: "9vmax", alpha: 0.14, disc: true },
+  { color: "206, 27, 107", x: "62%", y: "82%", size: "7vmax", alpha: 0.11, disc: true },
+  { color: "46, 116, 203", x: "93%", y: "40%", size: "6vmax", alpha: 0.12, disc: true },
+  { color: "11, 163, 214", x: "18%", y: "78%", size: "8vmax", alpha: 0.1, disc: true },
+];
+
+function glowStyle({ color, x, y, size, alpha, disc }: Glow): React.CSSProperties {
+  const fill = disc
+    ? `radial-gradient(circle, rgba(${color}, ${alpha}) 0%, rgba(${color}, ${alpha * 0.8}) 55%, rgba(${color}, 0) 70%)`
+    : `radial-gradient(circle, rgba(${color}, ${alpha}) 0%, rgba(${color}, ${alpha * 0.45}) 35%, rgba(${color}, 0) 70%)`;
+  return {
+    left: x,
+    top: y,
+    width: size,
+    height: size,
+    transform: "translate(-50%, -50%)",
+    backgroundImage: fill,
+  };
+}
+
+/** Top-right: logo mark. Bottom-right: full-screen soft spectrum wash. Both fixed behind content. */
 export function LogoBackground({ position = "top-right", opacity = 1 }: { position?: Position; opacity?: number }) {
   const isBottom = position === "bottom-right";
   if (isBottom) {
     return (
-      <div
-        className="fixed bottom-0 right-0 z-0 h-[min(100vh,280px)] w-[min(100vw,420px)] overflow-hidden"
-        style={{
-          opacity,
-          maskImage: "linear-gradient(to top left, transparent 0%, rgba(0,0,0,0.4) 35%, black 55%)",
-          WebkitMaskImage: "linear-gradient(to top left, transparent 0%, rgba(0,0,0,0.4) 35%, black 55%)",
-        }}
-        aria-hidden
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/corner-background.png"
-          alt=""
-          className="h-full w-full object-cover object-left object-bottom scale-100"
-          width={420}
-          height={280}
-        />
+      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" style={{ opacity }} aria-hidden>
+        <div className="absolute inset-0 dark:opacity-70">
+          {GLOWS.map((glow, i) => (
+            <div key={i} className="absolute rounded-full" style={glowStyle(glow)} />
+          ))}
+        </div>
       </div>
     );
   }
