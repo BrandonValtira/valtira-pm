@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTheme } from "@/components/theme-context";
 
 type SessionUser = { name?: string | null; email?: string | null; image?: string | null; role?: string };
@@ -66,7 +66,7 @@ function TeamIcon({ className }: { className?: string }) {
   );
 }
 
-function ThemeToggle({ showLabel, className = "" }: { showLabel?: boolean; className?: string }) {
+function ThemeToggle({ mode, className = "" }: { mode: SidebarMode; className?: string }) {
   const themeContext = useTheme();
   const theme = themeContext?.theme ?? "light";
   const toggleTheme = themeContext?.toggleTheme ?? (() => {});
@@ -87,9 +87,9 @@ function ThemeToggle({ showLabel, className = "" }: { showLabel?: boolean; class
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
         </svg>
       )}
-      <span className={showLabel ? undefined : LABEL_WIDE_ONLY}>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
-      {!showLabel && (
-        <span className={HOVER_LABEL} aria-hidden>
+      <span className={INLINE_LABEL[mode]}>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+      {HOVER_LABEL[mode] && (
+        <span className={HOVER_LABEL[mode]} aria-hidden>
           {theme === "dark" ? "Light mode" : "Dark mode"}
         </span>
       )}
@@ -97,21 +97,77 @@ function ThemeToggle({ showLabel, className = "" }: { showLabel?: boolean; class
   );
 }
 
-// At 1440px and wider the sidebar stays open with labels; below that it shows icons with a floating label on hover.
-const SIDEBAR_WIDTH = "w-14 min-[1440px]:w-[200px]";
-const LABEL_WIDE_ONLY = "hidden min-[1440px]:inline";
-const HOVER_LABEL =
-  "pointer-events-none absolute left-full top-1/2 z-10 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 min-[1440px]:hidden";
+/**
+ * "auto": open with labels at 1440px and wider, icons with hover labels below that.
+ * "open" / "closed": the user's choice from the collapse button, at any width.
+ */
+type SidebarMode = "auto" | "open" | "closed";
+
+const SIDEBAR_STORAGE_KEY = "valtira-sidebar";
+const WIDE_QUERY = "(min-width: 1440px)";
+
+const SIDEBAR_WIDTH: Record<SidebarMode, string> = {
+  auto: "w-14 min-[1440px]:w-[200px]",
+  open: "w-[200px]",
+  closed: "w-14",
+};
+
+/** Clipped rather than wrapped, so labels stay on one line while the sidebar width animates. */
+const INLINE_LABEL_BASE = "min-w-0 overflow-hidden whitespace-nowrap";
+
+const INLINE_LABEL: Record<SidebarMode, string> = {
+  auto: `${INLINE_LABEL_BASE} hidden min-[1440px]:inline`,
+  open: INLINE_LABEL_BASE,
+  closed: `${INLINE_LABEL_BASE} hidden`,
+};
+
+const HOVER_LABEL_BASE =
+  "pointer-events-none absolute left-full top-1/2 z-10 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100";
+
+const HOVER_LABEL: Record<SidebarMode, string | null> = {
+  auto: `${HOVER_LABEL_BASE} min-[1440px]:hidden`,
+  open: null,
+  closed: HOVER_LABEL_BASE,
+};
+
+const COLLAPSE_ICON_ROTATION: Record<SidebarMode, string> = {
+  auto: "rotate-180 min-[1440px]:rotate-0",
+  open: "",
+  closed: "rotate-180",
+};
+
+/** The inline label only shows while open and the hover label only while collapsed, so each names the action it performs. */
+function CollapseToggle({ mode, onToggle }: { mode: SidebarMode; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-50 hover:text-neutral-900"
+    >
+      <svg
+        className={`h-5 w-5 shrink-0 transition-transform ${COLLAPSE_ICON_ROTATION[mode]}`}
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+        aria-hidden
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+      </svg>
+      <span className={INLINE_LABEL[mode]}>Collapse menu</span>
+      {HOVER_LABEL[mode] && <span className={HOVER_LABEL[mode]}>Expand menu</span>}
+    </button>
+  );
+}
 
 function NavLinks({
   pathname,
   isSuperAdmin,
-  showLabels,
+  mode,
   onNavigate,
 }: {
   pathname: string;
   isSuperAdmin: boolean;
-  showLabels: boolean;
+  mode: SidebarMode;
   onNavigate?: () => void;
 }) {
   return (
@@ -132,8 +188,8 @@ function NavLinks({
             }`}
           >
             <Icon className="h-5 w-5 shrink-0" />
-            <span className={showLabels ? undefined : LABEL_WIDE_ONLY}>{item.label}</span>
-            {!showLabels && <span className={HOVER_LABEL}>{item.label}</span>}
+            <span className={INLINE_LABEL[mode]}>{item.label}</span>
+            {HOVER_LABEL[mode] && <span className={HOVER_LABEL[mode]}>{item.label}</span>}
           </Link>
         );
       })}
@@ -144,8 +200,29 @@ function NavLinks({
 export function DashboardSidebar({ sessionUser }: { sessionUser: SessionUser | null }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mode, setMode] = useState<SidebarMode>("auto");
 
   const isSuperAdmin = (sessionUser as { role?: string })?.role === "super_admin";
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+      if (stored === "open" || stored === "closed") setMode(stored);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  function toggleSidebar() {
+    const isOpen = mode === "auto" ? window.matchMedia(WIDE_QUERY).matches : mode === "open";
+    const next: SidebarMode = isOpen ? "closed" : "open";
+    setMode(next);
+    try {
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, next);
+    } catch {
+      // ignore
+    }
+  }
 
   return (
     <>
@@ -190,12 +267,12 @@ export function DashboardSidebar({ sessionUser }: { sessionUser: SessionUser | n
               <NavLinks
                 pathname={pathname}
                 isSuperAdmin={isSuperAdmin}
-                showLabels
+                mode="open"
                 onNavigate={() => setMobileOpen(false)}
               />
             </nav>
             <div className="mt-auto border-t border-neutral-200 pt-3">
-              <ThemeToggle showLabel />
+              <ThemeToggle mode="open" />
             </div>
           </aside>
         </>
@@ -203,22 +280,23 @@ export function DashboardSidebar({ sessionUser }: { sessionUser: SessionUser | n
 
       {/* Desktop sidebar. Sits above the Resources grid's sticky columns (z-30) so hover labels aren't covered. */}
       <aside
-        className={`fixed left-0 top-14 z-[35] hidden h-[calc(100vh-3.5rem)] border-r border-neutral-200 bg-white transition-[width] duration-200 ease-out md:block ${SIDEBAR_WIDTH}`}
+        className={`fixed left-0 top-14 z-[35] hidden h-[calc(100vh-3.5rem)] border-r border-neutral-200 bg-white transition-[width] duration-200 ease-out md:block ${SIDEBAR_WIDTH[mode]}`}
       >
         <div className="flex h-full flex-col py-3">
           <nav className="flex flex-1 flex-col gap-0.5 px-2" aria-label="Main navigation">
-            <NavLinks pathname={pathname} isSuperAdmin={isSuperAdmin} showLabels={false} />
+            <NavLinks pathname={pathname} isSuperAdmin={isSuperAdmin} mode={mode} />
           </nav>
 
-          <div className="mt-auto border-t border-neutral-200 px-2 pt-2">
-            <ThemeToggle showLabel={false} />
+          <div className="mt-auto flex flex-col gap-0.5 border-t border-neutral-200 px-2 pt-2">
+            <CollapseToggle mode={mode} onToggle={toggleSidebar} />
+            <ThemeToggle mode={mode} />
           </div>
         </div>
       </aside>
 
       {/* Spacer so main content doesn't sit under sidebar (desktop) */}
       <div
-        className={`hidden shrink-0 transition-[width] duration-200 ease-out md:block ${SIDEBAR_WIDTH}`}
+        className={`hidden shrink-0 transition-[width] duration-200 ease-out md:block ${SIDEBAR_WIDTH[mode]}`}
         aria-hidden
       />
     </>
